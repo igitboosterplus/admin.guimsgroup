@@ -5,19 +5,28 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/hooks/useAuth";
 import { PermissionsProvider } from "@/hooks/usePermissions";
-import Login from "./pages/Login";
-import Dashboard from "./pages/Dashboard";
-import Attendance from "./pages/Attendance";
-import Employees from "./pages/Employees";
-import Reports from "./pages/Reports";
-import Settings from "./pages/Settings";
-import Approvals from "./pages/Approvals";
-import Permissions from "./pages/Permissions";
-import LeaveRequests from "./pages/LeaveRequests";
-import Tasks from "./pages/Tasks";
-import Schedules from "./pages/Schedules";
-import Profile from './pages/Profile';
-import NotFound from "./pages/NotFound";
+import { Suspense, lazy } from "react";
+import { Loader2 } from "lucide-react";
+
+const Login = lazy(() => import("./pages/Login"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Attendance = lazy(() => import("./pages/Attendance"));
+const Employees = lazy(() => import("./pages/Employees"));
+const Reports = lazy(() => import("./pages/Reports"));
+const Settings = lazy(() => import("./pages/Settings"));
+const Approvals = lazy(() => import("./pages/Approvals"));
+const Permissions = lazy(() => import("./pages/Permissions"));
+const LeaveRequests = lazy(() => import("./pages/LeaveRequests"));
+const Tasks = lazy(() => import("./pages/Tasks"));
+const Schedules = lazy(() => import("./pages/Schedules"));
+const Profile = lazy(() => import("./pages/Profile"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+
+const PageLoader = () => (
+  <div className="flex min-h-screen items-center justify-center">
+    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+  </div>
+);
 
 const queryClient = new QueryClient();
 
@@ -29,6 +38,7 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
           <PermissionsProvider>
+          <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/" element={<Navigate to="/login" replace />} />
             <Route path="/login" element={<Login />} />
@@ -45,6 +55,7 @@ const App = () => (
             <Route path="/profile" element={<Profile />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </Suspense>
           </PermissionsProvider>
         </AuthProvider>
       </BrowserRouter>

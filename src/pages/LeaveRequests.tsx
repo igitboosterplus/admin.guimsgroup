@@ -3,7 +3,7 @@ import DashboardLayout from '@/components/DashboardLayout';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { usePermissions } from '@/hooks/usePermissions';
-import { Card } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -207,6 +207,24 @@ export default function LeaveRequests() {
       toast({ title: 'Dates invalides', description: 'La date de fin doit être après la date de début.' });
       return;
     }
+
+    // Vérifier le chevauchement avec des demandes existantes (non rejetées)
+    const overlap = requests.find(
+      (r) =>
+        r.user_id === user!.id &&
+        r.status !== 'rejected' &&
+        r.start_date <= form.end_date &&
+        r.end_date >= form.start_date,
+    );
+    if (overlap) {
+      toast({
+        title: 'Chevauchement détecté',
+        description: `Cette période chevauche une demande existante (${fmtDate(overlap.start_date)} - ${fmtDate(overlap.end_date)}).`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setSubmitting(true);
     try {
       const { error } = await supabase.from('leave_requests').insert({
@@ -300,6 +318,57 @@ export default function LeaveRequests() {
           </div>
         </div>
 
+        {/* Leave balance for non-admin */}
+        {!isAdmin && (
+          (() => {
+            const year = new Date().getFullYear();
+            const ANNUAL_PAID_DAYS = 30;
+            const myRequests = requests.filter((r) => r.user_id === user?.id && r.status !== 'rejected');
+            const usedPaid = myRequests
+              .filter((r) => r.leave_type === 'paid' && r.start_date.startsWith(String(year)))
+              .reduce((sum, r) => sum + countWorkingDays(r.start_date, r.end_date), 0);
+            const usedUnpaid = myRequests
+              .filter((r) => r.leave_type === 'unpaid' && r.start_date.startsWith(String(year)))
+              .reduce((sum, r) => sum + countWorkingDays(r.start_date, r.end_date), 0);
+            const pendingDays = myRequests
+              .filter((r) => r.status === 'pending' && r.start_date.startsWith(String(year)))
+              .reduce((sum, r) => sum + countWorkingDays(r.start_date, r.end_date), 0);
+            return (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Card className="stat-card">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm text-muted-foreground">Congés payés restants</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold font-display text-success">
+                      {ANNUAL_PAID_DAYS - usedPaid}j
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">{usedPaid}j utilisés sur {ANNUAL_PAID_DAYS}j</p>
+                  </CardContent>
+                </Card>
+                <Card className="stat-card">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm text-muted-foreground">Congés non payés pris</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold font-display text-orange-600">{usedUnpaid}j</div>
+                    <p className="text-xs text-muted-foreground mt-1">Cette année</p>
+                  </CardContent>
+                </Card>
+                <Card className="stat-card">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm text-muted-foreground">En attente</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold font-display text-blue-600">{pendingDays}j</div>
+                    <p className="text-xs text-muted-foreground mt-1">Demandes non traitées</p>
+                  </CardContent>
+                </Card>
+              </div>
+            );
+          })()
+        )}
+
         {/* Filter */}
         <Card className="p-4">
           <div className="flex flex-wrap items-center gap-3">
@@ -344,8 +413,10 @@ export default function LeaveRequests() {
                   </TableRow>
                 ) : filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={isAdmin ? 9 : 7} className="text-center py-8 text-muted-foreground">
-                      Aucune demande trouvée
+                    <TableCell colSpan={isAdmin ? 9 : 7} className="text-center py-12">
+                      <CalendarDays className="h-8 w-8 text-muted-foreground/50 mx-auto mb-2" />
+                      <p className="text-muted-foreground font-medium">Aucune demande de congé</p>
+                      <p className="text-xs text-muted-foreground/70 mt-1">Créez une demande pour commencer</p>
                     </TableCell>
                   </TableRow>
                 ) : (

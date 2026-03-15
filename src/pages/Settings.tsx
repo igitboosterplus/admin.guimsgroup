@@ -60,21 +60,35 @@ export default function Settings() {
   }, []);
 
   const handleSave = async () => {
+    // Validation
+    if (form.work_start_time >= form.work_end_time) {
+      toast({ title: 'Erreur', description: 'L\'heure d\'arrivée doit être avant l\'heure de départ.', variant: 'destructive' });
+      return;
+    }
+    if (form.office_ip !== '0.0.0.0' && !/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(form.office_ip)) {
+      toast({ title: 'Erreur', description: 'L\'adresse IP n\'est pas valide (format: x.x.x.x ou 0.0.0.0 pour désactiver).', variant: 'destructive' });
+      return;
+    }
+    if (form.late_deduction_amount < 0 || form.absence_deduction_amount < 0) {
+      toast({ title: 'Erreur', description: 'Les montants de déduction doivent être positifs.', variant: 'destructive' });
+      return;
+    }
+
     setSaving(true);
     const updates = [
-      { key: 'work_start_time', value: JSON.stringify(form.work_start_time) },
-      { key: 'work_end_time', value: JSON.stringify(form.work_end_time) },
-      { key: 'office_ip', value: JSON.stringify(form.office_ip) },
-      { key: 'late_deduction', value: JSON.stringify({ type: form.late_deduction_type, amount: form.late_deduction_amount }) },
-      { key: 'absence_deduction', value: JSON.stringify({ type: form.absence_deduction_type, amount: form.absence_deduction_amount }) },
-      { key: 'currency', value: JSON.stringify(form.currency) },
+      { key: 'work_start_time', value: form.work_start_time },
+      { key: 'work_end_time', value: form.work_end_time },
+      { key: 'office_ip', value: form.office_ip },
+      { key: 'late_deduction', value: { type: form.late_deduction_type, amount: form.late_deduction_amount } },
+      { key: 'absence_deduction', value: { type: form.absence_deduction_type, amount: form.absence_deduction_amount } },
+      { key: 'currency', value: form.currency },
     ];
 
     let hasError = false;
     for (const u of updates) {
       const { error } = await supabase
         .from('app_settings')
-        .update({ value: JSON.parse(u.value) })
+        .update({ value: u.value as any })
         .eq('key', u.key);
       if (error) hasError = true;
     }

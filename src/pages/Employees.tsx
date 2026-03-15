@@ -129,14 +129,19 @@ export default function Employees() {
   const [customPosMode, setCustomPosMode] = useState(false);
 
   const fetchEmployees = useCallback(async () => {
-    const [profilesRes, rolesRes, settingsRes] = await Promise.all([
+    const [profilesRes, settingsRes] = await Promise.all([
       supabase.from('profiles').select('*').order('full_name'),
-      supabase.from('user_roles').select('*'),
       supabase.from('app_settings').select('key, value').eq('key', 'custom_positions').maybeSingle(),
     ]);
 
     const profiles = profilesRes.data || [];
-    const roles = rolesRes.data || [];
+
+    // Only fetch roles for employees that exist
+    const userIds = profiles.map((p) => p.user_id);
+    const { data: rolesData } = userIds.length > 0
+      ? await supabase.from('user_roles').select('*').in('user_id', userIds)
+      : { data: [] };
+    const roles = rolesData || [];
 
     if (settingsRes.data?.value && typeof settingsRes.data.value === 'object') {
       setCustomPositions(settingsRes.data.value as Record<string, string[]>);
@@ -561,8 +566,14 @@ export default function Employees() {
                 ))}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={9 + (showActions ? 1 : 0)} className="px-4 py-8 text-center text-muted-foreground">
-                      {showArchived ? 'Aucun employé archivé' : 'Aucun employé trouvé'}
+                    <td colSpan={9 + (showActions ? 1 : 0)} className="px-4 py-12 text-center">
+                      <Search className="h-8 w-8 text-muted-foreground/50 mx-auto mb-2" />
+                      <p className="text-muted-foreground font-medium">
+                        {showArchived ? 'Aucun employé archivé' : 'Aucun employé trouvé'}
+                      </p>
+                      <p className="text-xs text-muted-foreground/70 mt-1">
+                        {search ? 'Essayez avec un autre terme de recherche' : showArchived ? '' : 'Ajoutez un employé pour commencer'}
+                      </p>
                     </td>
                   </tr>
                 )}

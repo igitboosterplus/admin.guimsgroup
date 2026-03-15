@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
-import { User, Mail, Phone, Building2, Briefcase, Shield, Lock, Loader2, CheckCircle2 } from 'lucide-react';
+import { User, Mail, Phone, Building2, Briefcase, Shield, Lock, Loader2, CheckCircle2, CalendarDays, Hash } from 'lucide-react';
 import { getDepartmentLogo } from '@/lib/departments';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -160,6 +160,24 @@ export default function Profile() {
                   <p className="font-medium">{profile.position || '—'}</p>
                 </div>
               </div>
+              {(profile as any).hire_date && (
+                <div className="flex items-center gap-3 text-sm">
+                  <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Date d'embauche</p>
+                    <p className="font-medium">{format(new Date((profile as any).hire_date), 'd MMMM yyyy', { locale: fr })}</p>
+                  </div>
+                </div>
+              )}
+              {(profile as any).matricule && (
+                <div className="flex items-center gap-3 text-sm">
+                  <Hash className="h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Matricule</p>
+                    <p className="font-medium">{(profile as any).matricule}</p>
+                  </div>
+                </div>
+              )}
             </div>
 
             <Separator />

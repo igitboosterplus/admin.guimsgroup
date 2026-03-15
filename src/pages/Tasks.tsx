@@ -489,8 +489,12 @@ export default function Tasks() {
                   </TableRow>
                 ) : filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={isAdmin ? 7 : 6} className="text-center py-8 text-muted-foreground">
-                      Aucune tâche trouvée
+                    <TableCell colSpan={isAdmin ? 7 : 6} className="text-center py-12">
+                      <ClipboardList className="h-8 w-8 text-muted-foreground/50 mx-auto mb-2" />
+                      <p className="text-muted-foreground font-medium">Aucune tâche trouvée</p>
+                      <p className="text-xs text-muted-foreground/70 mt-1">
+                        {search ? 'Essayez avec un autre terme de recherche' : isAdmin ? 'Créez une tâche pour commencer' : 'Aucune tâche assignée'}
+                      </p>
                     </TableCell>
                   </TableRow>
                 ) : (

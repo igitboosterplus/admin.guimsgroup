@@ -208,11 +208,19 @@ export default function Reports() {
         });
         const overtimeBonus = Math.round(overtimeDays * (p.base_salary || 0) * 0.05);
 
-        // Déductions : 1% du salaire par heure d'absence + 4% par jour d'absence non-justifiée
+        // Déductions : configurable depuis paramètres
+        // late_deduction & absence_deduction from Settings (type: fixed or percentage)
         // Congé non payé : salaire journalier (salaire/26) par jour
         const salary = p.base_salary || 0;
-        const hourDeduction = totalAbsenceHours * salary * 0.01;
-        const dayDeduction = netAbsents * salary * 0.04;
+        const lateDed = settings.late_deduction || { type: 'fixed', amount: 2000 };
+        const absDed = settings.absence_deduction || { type: 'fixed', amount: 5000 };
+
+        const hourDeduction = lateDed.type === 'percentage'
+          ? totalAbsenceHours * salary * (lateDed.amount / 100)
+          : totalAbsenceHours * lateDed.amount;
+        const dayDeduction = absDed.type === 'percentage'
+          ? netAbsents * salary * (absDed.amount / 100)
+          : netAbsents * absDed.amount;
         const unpaidLeaveDeduction = Math.round(unpaidLeaveDays * salary / 26);
         const deduction = Math.round(hourDeduction + dayDeduction + unpaidLeaveDeduction);
 
@@ -518,7 +526,14 @@ export default function Reports() {
                   <div className="text-2xl font-bold font-display">
                     {reports.reduce((s, r) => s + r.absents, 0)}j · {reports.reduce((s, r) => s + r.absence_hours, 0)}h
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1">4%/jour · 1%/heure</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {(() => {
+                      const absDed = settings.absence_deduction || { type: 'fixed', amount: 5000 };
+                      const lateDed = settings.late_deduction || { type: 'fixed', amount: 2000 };
+                      const fmtDed = (d: any) => d.type === 'percentage' ? `${d.amount}%` : `${Number(d.amount).toLocaleString()} FCFA`;
+                      return `${fmtDed(absDed)}/jour · ${fmtDed(lateDed)}/heure`;
+                    })()}
+                  </p>
                 </CardContent>
               </Card>
               <Card className="stat-card">

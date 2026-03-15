@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Users, Clock, AlertTriangle, CheckCircle, LogIn, CalendarDays, ClipboardList } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { getDepartmentLogo } from '@/lib/departments';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useToast } from '@/hooks/use-toast';
 
 const DEPT_COLORS: Record<string, string> = {
   'GABA': '#16a34a',
@@ -39,22 +41,28 @@ interface DeptData {
 export default function Dashboard() {
   const { role, profile, user } = useAuth();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [stats, setStats] = useState({ totalEmployees: 0, presentToday: 0, lateToday: 0, absentToday: 0 });
   const [weeklyData, setWeeklyData] = useState<WeeklyData[]>([]);
   const [deptData, setDeptData] = useState<DeptData[]>([]);
   const [myStats, setMyStats] = useState({ todayStatus: '' as string, monthPresents: 0, monthLates: 0, monthAbsents: 0 });
   const [taskStats, setTaskStats] = useState({ total: 0, completed: 0, inProgress: 0, overdue: 0 });
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchStats = async () => {
-      const today = new Date().toISOString().split('T')[0];
+      try {
+        const today = new Date().toISOString().split('T')[0];
 
-      if (role === 'admin' || role === 'manager') {
-        const [employeesRes, attendanceRes, profilesRes] = await Promise.all([
-          supabase.from('profiles').select('id', { count: 'exact' }).eq('is_approved', true),
-          supabase.from('attendance').select('*').gte('clock_in', today),
-          supabase.from('profiles').select('department').eq('is_approved', true),
-        ]);
+        if (role === 'admin' || role === 'manager') {
+          const [employeesRes, attendanceRes, profilesRes] = await Promise.all([
+            supabase.from('profiles').select('id', { count: 'exact' }).eq('is_approved', true).eq('archived', false).eq('is_paused', false),
+            supabase.from('attendance').select('*').gte('clock_in', today),
+            supabase.from('profiles').select('department').eq('is_approved', true).eq('archived', false).eq('is_paused', false),
+          ]);
+
+          if (employeesRes.error) throw employeesRes.error;
+          if (attendanceRes.error) throw attendanceRes.error;
 
         const attendance = attendanceRes.data || [];
         const totalEmployees = employeesRes.count || 0;
@@ -73,31 +81,39 @@ export default function Dashboard() {
         });
         setDeptData(Object.entries(deptMap).map(([name, value]) => ({ name, value })));
 
-        // Weekly attendance (last 7 working days)
-        const days: WeeklyData[] = [];
+        // Weekly attendance (last 7 days) — single query instead of 7
         const dayNames = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+        const weekStart = new Date();
+        weekStart.setDate(weekStart.getDate() - 6);
+        const weekStartStr = weekStart.toISOString().split('T')[0];
+        const tomorrowDate = new Date();
+        tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+        const tomorrowStr = tomorrowDate.toISOString().split('T')[0];
+
+        const { data: weekAtt } = await supabase
+          .from('attendance')
+          .select('status, clock_in')
+          .gte('clock_in', weekStartStr)
+          .lt('clock_in', tomorrowStr);
+
+        const weekRecords = weekAtt || [];
+        const days: WeeklyData[] = [];
         for (let i = 6; i >= 0; i--) {
           const d = new Date();
           d.setDate(d.getDate() - i);
           const dateStr = d.toISOString().split('T')[0];
-          const nextDay = new Date(d);
-          nextDay.setDate(nextDay.getDate() + 1);
-
-          const { data: dayAtt } = await supabase
-            .from('attendance')
-            .select('status')
-            .gte('clock_in', dateStr)
-            .lt('clock_in', nextDay.toISOString().split('T')[0]);
-
-          const records = dayAtt || [];
+          const dayRecords = weekRecords.filter((a) => a.clock_in.startsWith(dateStr));
           days.push({
             day: `${dayNames[d.getDay()]} ${d.getDate()}`,
-            presents: records.filter((a) => a.status === 'present').length,
-            retards: records.filter((a) => a.status === 'late').length,
-            absents: Math.max(0, totalEmployees - records.length),
+            presents: dayRecords.filter((a) => a.status === 'present').length,
+            retards: dayRecords.filter((a) => a.status === 'late').length,
+            absents: Math.max(0, totalEmployees - dayRecords.length),
           });
         }
         setWeeklyData(days);
+      }
+      } catch (err: any) {
+        toast({ title: 'Erreur chargement', description: err.message, variant: 'destructive' });
       }
     };
 
@@ -115,16 +131,25 @@ export default function Dashboard() {
       const todayRecord = todayRes.data?.[0];
       const monthRecords = monthRes.data || [];
 
+      // Calculate working days this month up to today
+      const now = new Date();
+      const monthStartDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      let workingDays = 0;
+      const d = new Date(monthStartDate);
+      while (d <= now && d.getMonth() === now.getMonth()) {
+        if (d.getDay() !== 0) workingDays++; // exclude Sunday
+        d.setDate(d.getDate() + 1);
+      }
+      const uniqueDays = new Set(monthRecords.map((r) => r.status ? new Date(r.clock_in || '').toISOString().split('T')[0] : ''));
+      const absents = Math.max(0, workingDays - uniqueDays.size);
+
       setMyStats({
         todayStatus: todayRecord?.status || 'absent',
         monthPresents: monthRecords.filter((r) => r.status === 'present').length,
         monthLates: monthRecords.filter((r) => r.status === 'late').length,
-        monthAbsents: 0, // calculated server-side in Reports
+        monthAbsents: absents,
       });
     };
-
-    fetchStats();
-    fetchMyStats();
 
     // Task stats
     const fetchTaskStats = async () => {
@@ -141,7 +166,8 @@ export default function Dashboard() {
         overdue: tasks.filter((t) => t.status === 'overdue').length,
       });
     };
-    fetchTaskStats();
+
+    Promise.all([fetchStats(), fetchMyStats(), fetchTaskStats()]).finally(() => setLoading(false));
   }, [role, user]);
 
   const statCards = [
@@ -162,7 +188,17 @@ export default function Dashboard() {
         {(role === 'admin' || role === 'manager') && (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-              {statCards.map((stat) => (
+              {loading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <Card key={i} className="stat-card">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                      <Skeleton className="h-4 w-24" />
+                      <Skeleton className="h-5 w-5 rounded" />
+                    </CardHeader>
+                    <CardContent><Skeleton className="h-8 w-16" /></CardContent>
+                  </Card>
+                ))
+              ) : statCards.map((stat) => (
                 <Card key={stat.label} className="stat-card">
                   <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
                     <CardTitle className="text-sm font-medium text-muted-foreground">{stat.label}</CardTitle>
@@ -208,7 +244,13 @@ export default function Dashboard() {
                   <CardTitle className="text-base">Présences des 7 derniers jours</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {weeklyData.length > 0 ? (
+                  {loading ? (
+                    <div className="space-y-3 py-4">
+                      <Skeleton className="h-6 w-full" />
+                      <Skeleton className="h-40 w-full" />
+                      <Skeleton className="h-6 w-3/4" />
+                    </div>
+                  ) : weeklyData.length > 0 ? (
                     <ResponsiveContainer width="100%" height={280}>
                       <BarChart data={weeklyData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
@@ -222,7 +264,7 @@ export default function Dashboard() {
                     </ResponsiveContainer>
                   ) : (
                     <div className="flex items-center justify-center h-[280px] text-muted-foreground text-sm">
-                      Chargement...
+                      Aucune donnée de présence
                     </div>
                   )}
                 </CardContent>
@@ -268,12 +310,36 @@ export default function Dashboard() {
                     </ResponsiveContainer>
                   ) : (
                     <div className="flex items-center justify-center h-[280px] text-muted-foreground text-sm">
-                      Chargement...
+                      Aucun département
                     </div>
                   )}
                 </CardContent>
               </Card>
             </div>
+
+            {/* Quick actions */}
+            <Card className="stat-card">
+              <CardContent className="pt-6">
+                <p className="text-sm font-medium text-muted-foreground mb-3">Accès rapide</p>
+                <div className="flex flex-wrap gap-3">
+                  <Button variant="outline" onClick={() => navigate('/employees')}>
+                    <Users className="h-4 w-4 mr-2" /> Employés
+                  </Button>
+                  <Button variant="outline" onClick={() => navigate('/attendance')}>
+                    <Clock className="h-4 w-4 mr-2" /> Pointage
+                  </Button>
+                  <Button variant="outline" onClick={() => navigate('/reports')}>
+                    <AlertTriangle className="h-4 w-4 mr-2" /> Rapports
+                  </Button>
+                  <Button variant="outline" onClick={() => navigate('/tasks')}>
+                    <ClipboardList className="h-4 w-4 mr-2" /> Tâches
+                  </Button>
+                  <Button variant="outline" onClick={() => navigate('/leaves')}>
+                    <CalendarDays className="h-4 w-4 mr-2" /> Congés
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           </>
         )}
 
@@ -319,6 +385,10 @@ export default function Dashboard() {
                     <div className="text-center">
                       <p className="text-2xl font-bold text-warning">{myStats.monthLates}</p>
                       <p className="text-xs text-muted-foreground">Retards</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-destructive">{myStats.monthAbsents}</p>
+                      <p className="text-xs text-muted-foreground">Absences</p>
                     </div>
                     <div className="text-center">
                       <p className="text-2xl font-bold text-primary">{myStats.monthPresents + myStats.monthLates}</p>

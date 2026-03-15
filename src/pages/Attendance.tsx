@@ -64,8 +64,8 @@ export default function Attendance() {
       if (settings) {
         const ipSetting = settings.find((s) => s.key === 'office_ip');
         const startSetting = settings.find((s) => s.key === 'work_start_time');
-        if (ipSetting) setOfficeIp(String(ipSetting.value).replace(/"/g, ''));
-        if (startSetting) setWorkStartTime(String(startSetting.value).replace(/"/g, ''));
+        if (ipSetting) setOfficeIp(String(ipSetting.value ?? '').replace(/"/g, ''));
+        if (startSetting) setWorkStartTime(String(startSetting.value ?? '').replace(/"/g, ''));
       }
 
       // Fetch today's record
@@ -178,7 +178,10 @@ export default function Attendance() {
       .single();
 
     if (error) {
-      toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
+      const msg = error.message.includes('existe déjà')
+        ? 'Vous avez déjà pointé aujourd\'hui.'
+        : error.message;
+      toast({ title: 'Erreur', description: msg, variant: 'destructive' });
     } else {
       setTodayRecord(data);
       toast({
@@ -298,8 +301,8 @@ export default function Attendance() {
                 <p className="text-sm font-medium">Détection automatique active</p>
                 <p className="text-xs text-muted-foreground">
                   Le système vérifie votre connexion WiFi toutes les 2 min.
-                  {!todayRecord && ' Rappel de pointage dans 10 min si vous ne pointez pas.'}
-                  {todayRecord && !todayRecord.clock_out && ' Départ automatique si absence WiFi &gt; 20 min sans pointer.'}
+                  {!todayRecord && ' Arrivée automatique dès détection sur le réseau du bureau.'}
+                  {todayRecord && !todayRecord.clock_out && ' Départ automatique après 1h15 d\'absence du réseau.'}
                   {todayRecord?.clock_out && ' Journée complète — pointage terminé.'}
                 </p>
               </div>
@@ -362,10 +365,23 @@ export default function Attendance() {
                   {getStatusBadge(todayRecord.status)}
                 </div>
                 {todayRecord.clock_out ? (
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-muted-foreground">Départ</span>
-                    <span className="font-medium">{format(new Date(todayRecord.clock_out), 'HH:mm')}</span>
-                  </div>
+                  <>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Départ</span>
+                      <span className="font-medium">{format(new Date(todayRecord.clock_out), 'HH:mm')}</span>
+                    </div>
+                    <div className="flex justify-between items-center pt-2 border-t">
+                      <span className="text-sm text-muted-foreground">Durée</span>
+                      <span className="font-medium text-primary">
+                        {(() => {
+                          const ms = new Date(todayRecord.clock_out).getTime() - new Date(todayRecord.clock_in).getTime();
+                          const h = Math.floor(ms / 3600000);
+                          const m = Math.floor((ms % 3600000) / 60000);
+                          return `${h}h${m.toString().padStart(2, '0')}`;
+                        })()}
+                      </span>
+                    </div>
+                  </>
                 ) : (
                   <Button onClick={handleClockOut} variant="outline" disabled={submitting} className="w-full mt-2">
                     {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <LogOut className="h-4 w-4 mr-2" />}
@@ -390,6 +406,7 @@ export default function Attendance() {
                   <th className="table-header px-4 py-3 text-left">Date</th>
                   <th className="table-header px-4 py-3 text-left">Arrivée</th>
                   <th className="table-header px-4 py-3 text-left">Départ</th>
+                  <th className="table-header px-4 py-3 text-left">Durée</th>
                   <th className="table-header px-4 py-3 text-left">Statut</th>
                 </tr>
               </thead>
@@ -427,12 +444,20 @@ export default function Attendance() {
                         </div>
                       )}
                     </td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">
+                      {record.clock_out ? (() => {
+                        const ms = new Date(record.clock_out).getTime() - new Date(record.clock_in).getTime();
+                        const h = Math.floor(ms / 3600000);
+                        const m = Math.floor((ms % 3600000) / 60000);
+                        return `${h}h${m.toString().padStart(2, '0')}`;
+                      })() : '—'}
+                    </td>
                     <td className="px-4 py-3">{getStatusBadge(record.status)}</td>
                   </tr>
                 ))}
                 {history.length === 0 && (
                   <tr>
-                    <td colSpan={isAdminOrManager ? 5 : 4} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={isAdminOrManager ? 6 : 5} className="px-4 py-8 text-center text-muted-foreground">
                       Aucun historique de pointage
                     </td>
                   </tr>
