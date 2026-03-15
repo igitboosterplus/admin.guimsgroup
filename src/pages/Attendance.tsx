@@ -166,7 +166,15 @@ export default function Attendance() {
     if (currentIp && officeIp) {
       // Bureau users must use office IP; terrain users can use any
       if (role === 'bureau') {
-        setIpAllowed(officeIp === '0.0.0.0' || currentIp === officeIp);
+        if (officeIp === '0.0.0.0') {
+          setIpAllowed(true);
+        } else if (officeIp.includes('*')) {
+          // Wildcard matching: 196.168.1.* matches any IP starting with 196.168.1.
+          const pattern = officeIp.split('.').map(seg => seg === '*' ? '\\d+' : seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\.');
+          setIpAllowed(new RegExp(`^${pattern}$`).test(currentIp));
+        } else {
+          setIpAllowed(currentIp === officeIp);
+        }
       } else {
         setIpAllowed(true);
       }

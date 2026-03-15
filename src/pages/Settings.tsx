@@ -80,8 +80,8 @@ export default function Settings() {
       toast({ title: 'Erreur', description: 'L\'heure d\'arrivée doit être avant l\'heure de départ.', variant: 'destructive' });
       return;
     }
-    if (form.office_ip !== '0.0.0.0' && !/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(form.office_ip)) {
-      toast({ title: 'Erreur', description: 'L\'adresse IP n\'est pas valide (format: x.x.x.x ou 0.0.0.0 pour désactiver).', variant: 'destructive' });
+    if (form.office_ip !== '0.0.0.0' && !/^[\d.*]{1,3}\.[\d.*]{1,3}\.[\d.*]{1,3}\.[\d.*]{1,3}$/.test(form.office_ip)) {
+      toast({ title: 'Erreur', description: 'L\'adresse IP n\'est pas valide (format: x.x.x.x, x.x.x.* ou 0.0.0.0 pour désactiver).', variant: 'destructive' });
       return;
     }
     if (form.late_deduction_amount < 0 || form.absence_deduction_amount < 0) {
@@ -247,7 +247,7 @@ export default function Settings() {
                 placeholder="Ex: 196.168.1.1"
               />
               <p className="text-xs text-muted-foreground">
-                Mettre 0.0.0.0 pour désactiver la vérification IP
+                Mettre 0.0.0.0 pour désactiver. Utilisez * comme joker (ex: 196.168.1.* pour accepter toute la plage).
               </p>
             </div>
           </CardContent>

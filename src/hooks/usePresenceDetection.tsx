@@ -76,7 +76,9 @@ export function usePresenceDetection() {
       return; // network error → skip this cycle
     }
 
-    const isOnSite = currentIp === officeIp.current;
+    const isOnSite = officeIp.current.includes('*')
+      ? new RegExp('^' + officeIp.current.split('.').map(seg => seg === '*' ? '\\d+' : seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\.') + '$').test(currentIp)
+      : currentIp === officeIp.current;
     const record = await getTodayRecord();
     const hasClockedIn = !!record;
     const hasClockedOut = !!record?.clock_out;
