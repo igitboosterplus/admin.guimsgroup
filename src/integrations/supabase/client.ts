@@ -5,6 +5,14 @@ import type { Database } from './types';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
+if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+  document.getElementById('root')!.innerHTML =
+    '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;text-align:center;padding:2rem">' +
+    '<div><h1 style="color:#e11d48">Erreur de configuration</h1>' +
+    '<p>Les variables d\'environnement Supabase ne sont pas configurées.<br/>Veuillez ajouter <b>VITE_SUPABASE_URL</b> et <b>VITE_SUPABASE_PUBLISHABLE_KEY</b> dans les paramètres de déploiement.</p></div></div>';
+  throw new Error('Variables d\'environnement Supabase manquantes (VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY)');
+}
+
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 

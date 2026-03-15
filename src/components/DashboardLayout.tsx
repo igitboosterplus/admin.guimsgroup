@@ -5,7 +5,7 @@ import AppSidebar from './AppSidebar';
 import { Loader2 } from 'lucide-react';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { user, loading, isApproved, rulesAccepted } = useAuth();
+  const { user, profile, loading, isApproved, rulesAccepted } = useAuth();
 
   // WiFi presence detection — arrival/departure reminders
   usePresenceDetection();
@@ -19,6 +19,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   if (!user) return <Navigate to="/login" replace />;
+
+  // Compte archivé → rediriger vers login
+  if (profile?.archived) return <Navigate to="/login" replace />;
 
   // Not approved or rules not accepted → redirect to login (which shows pending screen)
   if (!isApproved || !rulesAccepted) return <Navigate to="/login" replace />;

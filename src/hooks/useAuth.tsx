@@ -73,6 +73,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (p2.data) setProfile(p2.data as Profile);
         if (r2.data) setRole(r2.data as AppRole);
       }
+
+      // Bloquer l'accès si le compte est archivé
+      const finalProfile = profileRes.data || null;
+      if (finalProfile && (finalProfile as Profile).archived) {
+        await supabase.auth.signOut();
+        setProfile(null);
+        setRole(null);
+        setUser(null);
+        setSession(null);
+        return;
+      }
     } catch (err) {
       console.error('Erreur fetchProfileAndRole:', err);
     }
@@ -112,8 +123,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error as Error | null };
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return { error: error as Error | null };
+
+    // Vérifier si le compte est archivé avant d'autoriser la connexion
+    if (data.user) {
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('archived')
+        .eq('user_id', data.user.id)
+        .single();
+      if (profileData?.archived) {
+        await supabase.auth.signOut();
+        return { error: new Error('Votre compte a été archivé. Veuillez contacter un administrateur.') };
+      }
+    }
+
+    return { error: null };
   };
 
   const signUp = async (email: string, password: string, fullName: string) => {
