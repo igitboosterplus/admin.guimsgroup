@@ -68,17 +68,33 @@ export default function Attendance() {
         if (startSetting) setWorkStartTime(String(startSetting.value ?? '').replace(/"/g, ''));
       }
 
-      // Fetch today's record
+      // Fetch today's record (or an open overnight shift from yesterday)
       if (user) {
         const today = new Date().toISOString().split('T')[0];
-        const { data } = await supabase
+        const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+
+        // First check for an open overnight record from yesterday (no clock_out)
+        const { data: overnightData } = await supabase
           .from('attendance')
           .select('*')
           .eq('user_id', user.id)
-          .gte('clock_in', today)
-          .order('clock_in', { ascending: false })
+          .gte('clock_in', yesterday)
+          .lt('clock_in', today)
+          .is('clock_out', null)
           .limit(1);
-        if (data && data.length > 0) setTodayRecord(data[0]);
+
+        if (overnightData && overnightData.length > 0) {
+          setTodayRecord(overnightData[0]);
+        } else {
+          const { data } = await supabase
+            .from('attendance')
+            .select('*')
+            .eq('user_id', user.id)
+            .gte('clock_in', today)
+            .order('clock_in', { ascending: false })
+            .limit(1);
+          if (data && data.length > 0) setTodayRecord(data[0]);
+        }
 
         // Fetch personal schedule
         const joursFr = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
@@ -211,6 +227,16 @@ export default function Attendance() {
         const [endH, endM] = todaySchedule.end.split(':').map(Number);
         const scheduledEnd = new Date(now);
         scheduledEnd.setHours(endH, endM, 0, 0);
+        // Overnight shift: if end < start, the end is the next day
+        const isOvernight = todaySchedule.end < todaySchedule.start;
+        if (isOvernight) {
+          // If we're still on the same calendar day as clock_in, end is tomorrow
+          const clockInDate = new Date(todayRecord.clock_in).toISOString().split('T')[0];
+          const todayDate = now.toISOString().split('T')[0];
+          if (todayDate === clockInDate) {
+            scheduledEnd.setDate(scheduledEnd.getDate() + 1);
+          }
+        }
         if (now < new Date(scheduledEnd.getTime() - 30 * 60000)) {
           toast({ title: '⚠️ Départ anticipé', description: `Vous partez avant ${todaySchedule.end} (fin prévue)`, variant: 'destructive' });
         } else {
@@ -227,17 +253,16 @@ export default function Attendance() {
     if (!fixRecord || !fixTime) return;
 
     // Build full ISO from the record's clock_in date + entered time
+    const clockInDate = new Date(fixRecord.clock_in);
     const dateStr = fixRecord.clock_in.split('T')[0];
-    const clockOutISO = new Date(`${dateStr}T${fixTime}:00`).toISOString();
+    let clockOutISO = new Date(`${dateStr}T${fixTime}:00`).toISOString();
 
-    // Validate: clock_out must be after clock_in
-    if (new Date(clockOutISO) <= new Date(fixRecord.clock_in)) {
-      toast({
-        title: 'Erreur',
-        description: `L'heure de départ doit être après l'arrivée (${format(new Date(fixRecord.clock_in), 'HH:mm')})`,
-        variant: 'destructive',
-      });
-      return;
+    // If the entered time is before clock_in time, assume next day (overnight shift)
+    if (new Date(clockOutISO) <= clockInDate) {
+      const nextDay = new Date(clockInDate);
+      nextDay.setDate(nextDay.getDate() + 1);
+      const nextDateStr = nextDay.toISOString().split('T')[0];
+      clockOutISO = new Date(`${nextDateStr}T${fixTime}:00`).toISOString();
     }
 
     setFixSubmitting(true);
@@ -346,6 +371,7 @@ export default function Attendance() {
                 ) : todaySchedule ? (
                   <p className="text-xs text-muted-foreground">
                     {todaySchedule.start} — {todaySchedule.end}
+                    {todaySchedule.end < todaySchedule.start && ' (lendemain 🌙)'}
                   </p>
                 ) : (
                   <p className="text-xs text-muted-foreground">
@@ -448,7 +474,14 @@ export default function Attendance() {
                     </td>
                     <td className="px-4 py-3 text-sm">
                       {record.clock_out ? (
-                        format(new Date(record.clock_out), 'HH:mm')
+                        <>
+                          {format(new Date(record.clock_out), 'HH:mm')}
+                          {format(new Date(record.clock_out), 'dd/MM') !== format(new Date(record.clock_in), 'dd/MM') && (
+                            <span className="text-[10px] text-muted-foreground ml-1">
+                              ({format(new Date(record.clock_out), 'dd/MM')})
+                            </span>
+                          )}
+                        </>
                       ) : (
                         <div className="flex items-center gap-1">
                           <AlertTriangle className="h-4 w-4 text-warning" />
@@ -530,6 +563,9 @@ export default function Attendance() {
                   value={fixTime}
                   onChange={(e) => setFixTime(e.target.value)}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Si l'heure saisie est avant l'arrivée, le départ sera placé au lendemain (horaire de nuit).
+                </p>
               </div>
             </div>
           )}

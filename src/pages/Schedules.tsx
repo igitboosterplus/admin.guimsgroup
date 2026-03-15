@@ -166,14 +166,12 @@ export default function Schedules() {
       const current = prev[day];
       if (!current) return prev;
       const updated = { ...current, [field]: value };
-      // Validate: end must be after start
-      if (updated.end && updated.start && updated.end <= updated.start) {
-        toast({ title: 'Horaire invalide', description: 'L\'heure de fin doit être après l\'heure de début.', variant: 'destructive' });
-        return prev;
-      }
       return { ...prev, [day]: updated };
     });
   };
+
+  // Detect if a schedule is overnight (end < start, e.g. 17:30 → 06:00)
+  const isOvernightShift = (day: DaySchedule) => day.end < day.start;
 
   const handleSave = async () => {
     if (!selectedUserId) return;
@@ -206,7 +204,8 @@ export default function Schedules() {
 
   const getDayHours = (day: DaySchedule | null): string => {
     if (!day) return 'Repos';
-    return `${day.start} — ${day.end}`;
+    const overnight = day.end < day.start;
+    return `${day.start} — ${day.end}${overnight ? ' (+1j)' : ''}`;
   };
 
   const getWeekTotal = (sched: WeekSchedule): number => {
@@ -215,7 +214,9 @@ export default function Schedules() {
       if (day) {
         const [sh, sm] = day.start.split(':').map(Number);
         const [eh, em] = day.end.split(':').map(Number);
-        total += (eh + em / 60) - (sh + sm / 60);
+        let hours = (eh + em / 60) - (sh + sm / 60);
+        if (hours <= 0) hours += 24; // Overnight shift (e.g. 17:30 → 06:00)
+        total += hours;
       }
     });
     return Math.round(total * 10) / 10;
@@ -321,6 +322,9 @@ export default function Schedules() {
                                   onChange={(e) => handleTimeChange(jour, 'end', e.target.value)}
                                   className="w-32"
                                 />
+                                {isOvernightShift(day!) && (
+                                  <Badge variant="outline" className="text-[10px] whitespace-nowrap">🌙 Nuit (+1j)</Badge>
+                                )}
                               </div>
                             ) : (
                               <span className="text-sm text-muted-foreground italic">Jour de repos</span>
