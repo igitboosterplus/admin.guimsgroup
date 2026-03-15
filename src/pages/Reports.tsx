@@ -4,11 +4,13 @@ import DashboardLayout from '@/components/DashboardLayout';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Download, FileDown, RotateCcw } from 'lucide-react';
+import { Loader2, Download, FileDown, RotateCcw, Brain, TrendingUp, AlertTriangle, CheckCircle, Lightbulb, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Progress } from '@/components/ui/progress';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,6 +26,7 @@ import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { analyzeReports, type AIAnalysisResult, type EmployeeReportData } from '@/lib/ai-analysis';
 
 interface EmployeeReport {
   user_id: string;
@@ -57,6 +60,8 @@ export default function Reports() {
   const [resetTarget, setResetTarget] = useState<EmployeeReport | null>(null);
   const [resetting, setResetting] = useState(false);
   const [fetchTrigger, setFetchTrigger] = useState(0);
+  const [aiAnalysis, setAiAnalysis] = useState<AIAnalysisResult | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
   const isAdmin = role === 'admin';
 
   useEffect(() => {
@@ -259,6 +264,45 @@ export default function Reports() {
 
     if (Object.keys(settings).length > 0) fetchReport();
   }, [month, settings, fetchTrigger]);
+
+  const handleAIAnalysis = async () => {
+    if (reports.length === 0) return;
+    setAiLoading(true);
+    setAiAnalysis(null);
+    try {
+      const monthLabel = months.find((m) => m.value === month)?.label || month;
+      const reportData: EmployeeReportData[] = reports.map((r) => ({
+        full_name: r.full_name,
+        department: r.department,
+        position: r.position,
+        base_salary: r.base_salary,
+        presents: r.presents,
+        lates: r.lates,
+        absents: r.absents,
+        absence_hours: r.absence_hours,
+        overtime_days: r.overtime_days,
+        tasks_assigned: r.tasks_assigned,
+        tasks_completed: r.tasks_completed,
+        tasks_overdue: r.tasks_overdue,
+        paid_leave_days: r.paid_leave_days,
+        unpaid_leave_days: r.unpaid_leave_days,
+        net_salary: r.net_salary,
+        deduction: r.deduction,
+      }));
+      const result = await analyzeReports(reportData, monthLabel);
+      setAiAnalysis(result);
+      toast({ title: '✅ Analyse IA terminée' });
+    } catch (err: any) {
+      toast({ title: 'Erreur IA', description: err.message, variant: 'destructive' });
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  // Reset AI analysis when month changes
+  useEffect(() => {
+    setAiAnalysis(null);
+  }, [month]);
 
   const handleResetCounters = async () => {
     if (!resetTarget) return;
@@ -475,6 +519,14 @@ export default function Reports() {
                 <FileDown className="h-4 w-4 mr-2" />
                 PDF
               </Button>
+              <Button
+                onClick={handleAIAnalysis}
+                disabled={reports.length === 0 || aiLoading}
+                className="bg-gradient-to-r from-purple-600 to-blue-600 text-white hover:from-purple-700 hover:to-blue-700"
+              >
+                {aiLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Brain className="h-4 w-4 mr-2" />}
+                Analyse IA
+              </Button>
             </div>
             )}
           </div>
@@ -646,6 +698,141 @@ export default function Reports() {
                 </table>
               </div>
             </Card>
+
+            {/* AI Analysis Results */}
+            {aiAnalysis && (
+              <Card className="overflow-hidden border-purple-200 dark:border-purple-800">
+                <CardHeader className="bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-950/30 dark:to-blue-950/30">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <Brain className="h-5 w-5 text-purple-600" />
+                    Analyse IA — Rapport Stratégique
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-6 pt-6">
+                  {/* Summary + Score */}
+                  <div className="flex flex-col sm:flex-row gap-4">
+                    <div className="flex-1 p-4 bg-muted/50 rounded-lg">
+                      <p className="text-sm leading-relaxed">{aiAnalysis.summary}</p>
+                    </div>
+                    <div className="sm:w-48 p-4 bg-muted/50 rounded-lg text-center">
+                      <p className="text-xs text-muted-foreground mb-2">Score de Productivité</p>
+                      <div className="text-4xl font-bold font-display" style={{
+                        color: aiAnalysis.profitability_score >= 70 ? '#16a34a' : aiAnalysis.profitability_score >= 40 ? '#ea580c' : '#dc2626'
+                      }}>
+                        {aiAnalysis.profitability_score}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">/100</p>
+                      <Progress value={aiAnalysis.profitability_score} className="mt-2 h-2" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Strengths */}
+                    {aiAnalysis.strengths.length > 0 && (
+                      <div className="p-4 border rounded-lg border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-950/20">
+                        <h4 className="font-semibold text-sm flex items-center gap-2 text-green-700 dark:text-green-400 mb-3">
+                          <CheckCircle className="h-4 w-4" />
+                          Points Forts
+                        </h4>
+                        <ul className="space-y-1.5">
+                          {aiAnalysis.strengths.map((s, i) => (
+                            <li key={i} className="text-sm flex items-start gap-2">
+                              <span className="text-green-500 mt-0.5">✓</span>
+                              {s}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Weaknesses */}
+                    {aiAnalysis.weaknesses.length > 0 && (
+                      <div className="p-4 border rounded-lg border-orange-200 dark:border-orange-800 bg-orange-50/50 dark:bg-orange-950/20">
+                        <h4 className="font-semibold text-sm flex items-center gap-2 text-orange-700 dark:text-orange-400 mb-3">
+                          <AlertTriangle className="h-4 w-4" />
+                          Points Faibles
+                        </h4>
+                        <ul className="space-y-1.5">
+                          {aiAnalysis.weaknesses.map((w, i) => (
+                            <li key={i} className="text-sm flex items-start gap-2">
+                              <span className="text-orange-500 mt-0.5">⚠</span>
+                              {w}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Recommendations */}
+                  {aiAnalysis.recommendations.length > 0 && (
+                    <div className="p-4 border rounded-lg border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
+                      <h4 className="font-semibold text-sm flex items-center gap-2 text-blue-700 dark:text-blue-400 mb-3">
+                        <Lightbulb className="h-4 w-4" />
+                        Recommandations pour l'Évolution de l'Entreprise
+                      </h4>
+                      <div className="space-y-2">
+                        {aiAnalysis.recommendations.map((r, i) => (
+                          <div key={i} className="flex items-start gap-3 p-2 bg-white/50 dark:bg-white/5 rounded">
+                            <span className="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center shrink-0">
+                              {i + 1}
+                            </span>
+                            <p className="text-sm">{r}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Department Insights */}
+                  {aiAnalysis.department_insights.length > 0 && (
+                    <div className="p-4 border rounded-lg">
+                      <h4 className="font-semibold text-sm flex items-center gap-2 mb-3">
+                        <TrendingUp className="h-4 w-4 text-primary" />
+                        Analyse par Département
+                      </h4>
+                      <div className="space-y-2">
+                        {aiAnalysis.department_insights.map((d, i) => (
+                          <div key={i} className="flex items-start gap-3 p-2 bg-muted/50 rounded">
+                            <span className="font-semibold text-xs text-primary shrink-0 min-w-[100px]">
+                              {d.department}
+                            </span>
+                            <p className="text-sm text-muted-foreground">{d.insight}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Risk Areas */}
+                  {aiAnalysis.risk_areas.length > 0 && (
+                    <div className="p-4 border rounded-lg border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/20">
+                      <h4 className="font-semibold text-sm flex items-center gap-2 text-red-700 dark:text-red-400 mb-3">
+                        <Shield className="h-4 w-4" />
+                        Zones de Risque
+                      </h4>
+                      <ul className="space-y-1.5">
+                        {aiAnalysis.risk_areas.map((r, i) => (
+                          <li key={i} className="text-sm flex items-start gap-2">
+                            <span className="text-red-500 mt-0.5">●</span>
+                            {r}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* AI Loading */}
+            {aiLoading && (
+              <Card className="p-8 text-center border-purple-200 dark:border-purple-800">
+                <Brain className="h-10 w-10 text-purple-500 mx-auto mb-3 animate-pulse" />
+                <p className="font-medium text-sm">Analyse en cours…</p>
+                <p className="text-xs text-muted-foreground mt-1">L'IA analyse les performances des employés et prépare des recommandations</p>
+              </Card>
+            )}
           </>
         )}
       </div>

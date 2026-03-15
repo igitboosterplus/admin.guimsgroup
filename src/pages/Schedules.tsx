@@ -165,7 +165,13 @@ export default function Schedules() {
     setSchedule((prev) => {
       const current = prev[day];
       if (!current) return prev;
-      return { ...prev, [day]: { ...current, [field]: value } };
+      const updated = { ...current, [field]: value };
+      // Validate: end must be after start
+      if (updated.end && updated.start && updated.end <= updated.start) {
+        toast({ title: 'Horaire invalide', description: 'L\'heure de fin doit être après l\'heure de début.', variant: 'destructive' });
+        return prev;
+      }
+      return { ...prev, [day]: updated };
     });
   };
 

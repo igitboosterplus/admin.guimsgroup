@@ -2,13 +2,15 @@ import { useEffect, useState, useCallback } from 'react';
 import DashboardLayout from '@/components/DashboardLayout';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { Card } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import {
   Dialog,
@@ -53,6 +55,12 @@ import {
   AlertTriangle,
   Clock,
   Loader2,
+  Target,
+  TrendingUp,
+  CalendarDays,
+  LayoutGrid,
+  List,
+  User,
 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
@@ -164,6 +172,7 @@ export default function Tasks() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
+  const [viewMode, setViewMode] = useState<'list' | 'board'>(isAdmin ? 'list' : 'board');
 
   /* ---------------------------------------------------------------- */
   /*  Fetch                                                            */
@@ -273,7 +282,7 @@ export default function Tasks() {
           })
           .eq('id', editingTask.id);
         if (error) throw error;
-        toast({ title: '✅ Tâche modifiée' });
+        toast({ title: '✅ Mission modifiée' });
       } else {
         const { error } = await supabase.from('tasks').insert({
           title: form.title.trim(),
@@ -285,7 +294,7 @@ export default function Tasks() {
           category: form.category.trim() || null,
         });
         if (error) throw error;
-        toast({ title: '✅ Tâche créée', description: `Mission attribuée avec succès.` });
+        toast({ title: '✅ Mission créée', description: `Mission attribuée avec succès.` });
       }
       setFormOpen(false);
       fetchData();
@@ -355,7 +364,7 @@ export default function Tasks() {
     if (error) {
       toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
     } else {
-      toast({ title: '✅ Tâche supprimée' });
+      toast({ title: '✅ Mission supprimée' });
       fetchData();
     }
     setDeleteTarget(null);
@@ -384,6 +393,15 @@ export default function Tasks() {
   const inProgressTasks = tasks.filter((t) => t.status === 'in_progress').length;
   const completedTasks = tasks.filter((t) => t.status === 'completed').length;
   const overdueTasks = tasks.filter((t) => t.status === 'overdue').length;
+  const avgProgress = tasks.length > 0 ? Math.round(tasks.reduce((s, t) => s + t.progress, 0) / tasks.length) : 0;
+
+  // Group tasks by status for board view
+  const boardColumns: { key: Task['status']; label: string; color: string; tasks: Task[] }[] = [
+    { key: 'pending', label: 'En attente', color: 'border-t-muted-foreground', tasks: filtered.filter((t) => t.status === 'pending') },
+    { key: 'in_progress', label: 'En cours', color: 'border-t-blue-500', tasks: filtered.filter((t) => t.status === 'in_progress') },
+    { key: 'overdue', label: 'En retard', color: 'border-t-destructive', tasks: filtered.filter((t) => t.status === 'overdue') },
+    { key: 'completed', label: 'Terminées', color: 'border-t-green-500', tasks: filtered.filter((t) => t.status === 'completed') },
+  ];
 
   /* ---------------------------------------------------------------- */
   /*  Render                                                           */
@@ -396,37 +414,123 @@ export default function Tasks() {
           <div>
             <h1 className="text-2xl font-display font-bold flex items-center gap-2">
               <ClipboardList className="h-6 w-6" />
-              Gestion des Tâches
+              {isAdmin ? 'Gestion des Missions' : 'Mes Missions'}
             </h1>
             <p className="text-muted-foreground mt-1">
               {isAdmin
                 ? 'Attribuer et suivre les missions des employés'
-                : 'Suivre et mettre à jour vos missions'}
+                : 'Consultez et suivez vos missions en entreprise'}
             </p>
           </div>
-          {isAdmin && (
-            <Button onClick={openNew}>
-              <Plus className="h-4 w-4 mr-2" />
-              Nouvelle tâche
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            <div className="flex border rounded-lg overflow-hidden">
+              <Button
+                size="sm"
+                variant={viewMode === 'board' ? 'default' : 'ghost'}
+                onClick={() => setViewMode('board')}
+                className="rounded-none"
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant={viewMode === 'list' ? 'default' : 'ghost'}
+                onClick={() => setViewMode('list')}
+                className="rounded-none"
+              >
+                <List className="h-4 w-4" />
+              </Button>
+            </div>
+            {isAdmin && (
+              <Button onClick={openNew}>
+                <Plus className="h-4 w-4 mr-2" />
+                Nouvelle mission
+              </Button>
+            )}
+          </div>
         </div>
 
-        {/* Stats cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          {[
-            { label: 'Total', value: totalTasks, color: 'text-foreground' },
-            { label: 'En attente', value: pendingTasks, color: 'text-muted-foreground' },
-            { label: 'En cours', value: inProgressTasks, color: 'text-blue-600' },
-            { label: 'Terminées', value: completedTasks, color: 'text-green-600' },
-            { label: 'En retard', value: overdueTasks, color: 'text-destructive' },
-          ].map((s) => (
-            <Card key={s.label} className="p-3 text-center">
-              <p className="text-xs text-muted-foreground">{s.label}</p>
-              <p className={`text-2xl font-bold font-display ${s.color}`}>{s.value}</p>
+        {/* Employee personal stats */}
+        {!isAdmin && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <Card className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-primary/10 rounded-lg">
+                  <Target className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Missions assignées</p>
+                  <p className="text-xl font-bold font-display">{totalTasks}</p>
+                </div>
+              </div>
             </Card>
-          ))}
-        </div>
+            <Card className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-green-500/10 rounded-lg">
+                  <CheckCircle className="h-5 w-5 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Terminées</p>
+                  <p className="text-xl font-bold font-display text-green-600">{completedTasks}</p>
+                </div>
+              </div>
+            </Card>
+            <Card className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-orange-500/10 rounded-lg">
+                  <TrendingUp className="h-5 w-5 text-orange-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Progression moy.</p>
+                  <p className="text-xl font-bold font-display text-orange-600">{avgProgress}%</p>
+                </div>
+              </div>
+            </Card>
+            <Card className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-destructive/10 rounded-lg">
+                  <AlertTriangle className="h-5 w-5 text-destructive" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">En retard</p>
+                  <p className="text-xl font-bold font-display text-destructive">{overdueTasks}</p>
+                </div>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* Admin stats cards */}
+        {isAdmin && (
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            {[
+              { label: 'Total', value: totalTasks, color: 'text-foreground' },
+              { label: 'En attente', value: pendingTasks, color: 'text-muted-foreground' },
+              { label: 'En cours', value: inProgressTasks, color: 'text-blue-600' },
+              { label: 'Terminées', value: completedTasks, color: 'text-green-600' },
+              { label: 'En retard', value: overdueTasks, color: 'text-destructive' },
+            ].map((s) => (
+              <Card key={s.label} className="p-3 text-center">
+                <p className="text-xs text-muted-foreground">{s.label}</p>
+                <p className={`text-2xl font-bold font-display ${s.color}`}>{s.value}</p>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {/* Global progress bar for employee */}
+        {!isAdmin && totalTasks > 0 && (
+          <Card className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium">Progression globale</span>
+              <span className="text-sm font-bold text-primary">{avgProgress}%</span>
+            </div>
+            <Progress value={avgProgress} className="h-3" />
+            <p className="text-xs text-muted-foreground mt-2">
+              {completedTasks} sur {totalTasks} missions terminées
+            </p>
+          </Card>
+        )}
 
         {/* Filters */}
         <Card className="p-4">
@@ -464,13 +568,119 @@ export default function Tasks() {
           </div>
         </Card>
 
-        {/* Tasks table */}
+        {/* ===== BOARD VIEW (Kanban) ===== */}
+        {viewMode === 'board' && (
+          loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <Card className="py-12 text-center">
+              <ClipboardList className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
+              <p className="text-muted-foreground font-medium">Aucune mission trouvée</p>
+              <p className="text-xs text-muted-foreground/70 mt-1">
+                {isAdmin ? 'Créez une mission pour commencer' : 'Aucune mission ne vous a été assignée pour le moment'}
+              </p>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {boardColumns.map((col) => (
+                <div key={col.key} className={`space-y-3 border-t-4 ${col.color} rounded-lg`}>
+                  <div className="flex items-center justify-between px-2 pt-3">
+                    <h3 className="text-sm font-semibold">{col.label}</h3>
+                    <Badge variant="secondary" className="text-xs">{col.tasks.length}</Badge>
+                  </div>
+                  <div className="space-y-2 px-1 pb-2 min-h-[100px]">
+                    {col.tasks.map((task) => {
+                      const pc = priorityConfig[task.priority];
+                      return (
+                        <Card
+                          key={task.id}
+                          className="p-3 cursor-pointer hover:shadow-md transition-shadow"
+                          onClick={() => setDetailTarget(task)}
+                        >
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <p className="font-medium text-sm leading-tight">{task.title}</p>
+                            <Badge variant={pc.variant} className="text-[10px] shrink-0">{pc.label}</Badge>
+                          </div>
+                          {task.category && (
+                            <Badge variant="outline" className="text-[10px] mb-2">{task.category}</Badge>
+                          )}
+                          {task.description && (
+                            <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{task.description}</p>
+                          )}
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${
+                                  task.progress === 100 ? 'bg-green-500' : task.progress > 50 ? 'bg-blue-500' : task.progress > 0 ? 'bg-orange-500' : 'bg-muted'
+                                }`}
+                                style={{ width: `${task.progress}%` }}
+                              />
+                            </div>
+                            <span className="text-[10px] font-medium">{task.progress}%</span>
+                          </div>
+                          <div className="flex items-center justify-between mt-2">
+                            <div className="flex items-center gap-1.5">
+                              {task.due_date && (
+                                <span className={`text-[10px] flex items-center gap-0.5 ${task.status === 'overdue' ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>
+                                  <CalendarDays className="h-3 w-3" />
+                                  {fmtDate(task.due_date)}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              {task.status !== 'completed' && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 w-6 p-0 text-blue-600"
+                                  title="Mettre à jour"
+                                  onClick={(e) => { e.stopPropagation(); openProgress(task); }}
+                                >
+                                  <Play className="h-3 w-3" />
+                                </Button>
+                              )}
+                              {isAdmin && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 w-6 p-0"
+                                  title="Modifier"
+                                  onClick={(e) => { e.stopPropagation(); openEdit(task); }}
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                          {isAdmin && task.assigned_to_name && (
+                            <div className="flex items-center gap-1 mt-1.5 text-[10px] text-muted-foreground">
+                              <User className="h-3 w-3" />
+                              {task.assigned_to_name}
+                            </div>
+                          )}
+                        </Card>
+                      );
+                    })}
+                    {col.tasks.length === 0 && (
+                      <p className="text-xs text-muted-foreground/50 text-center py-4">Aucune mission</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        )}
+
+        {/* ===== LIST VIEW (Table) ===== */}
+        {viewMode === 'list' && (
         <Card>
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Tâche</TableHead>
+                  <TableHead>Mission</TableHead>
                   {isAdmin && <TableHead>Employé</TableHead>}
                   <TableHead>Priorité</TableHead>
                   <TableHead>Échéance</TableHead>
@@ -491,9 +701,9 @@ export default function Tasks() {
                   <TableRow>
                     <TableCell colSpan={isAdmin ? 7 : 6} className="text-center py-12">
                       <ClipboardList className="h-8 w-8 text-muted-foreground/50 mx-auto mb-2" />
-                      <p className="text-muted-foreground font-medium">Aucune tâche trouvée</p>
+                      <p className="text-muted-foreground font-medium">Aucune mission trouvée</p>
                       <p className="text-xs text-muted-foreground/70 mt-1">
-                        {search ? 'Essayez avec un autre terme de recherche' : isAdmin ? 'Créez une tâche pour commencer' : 'Aucune tâche assignée'}
+                        {search ? 'Essayez avec un autre terme de recherche' : isAdmin ? 'Créez une mission pour commencer' : 'Aucune mission assignée'}
                       </p>
                     </TableCell>
                   </TableRow>
@@ -597,6 +807,7 @@ export default function Tasks() {
             </Table>
           </div>
         </Card>
+        )}
       </div>
 
       {/* ============================================================ */}
@@ -605,7 +816,7 @@ export default function Tasks() {
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{editingTask ? 'Modifier la tâche' : 'Nouvelle tâche'}</DialogTitle>
+            <DialogTitle>{editingTask ? 'Modifier la mission' : 'Nouvelle mission'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div>
@@ -761,7 +972,7 @@ export default function Tasks() {
       <Dialog open={!!detailTarget} onOpenChange={(open) => { if (!open) setDetailTarget(null); }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Détails de la tâche</DialogTitle>
+            <DialogTitle>Détails de la mission</DialogTitle>
           </DialogHeader>
           {detailTarget && (
             <div className="space-y-3 py-2 text-sm">
@@ -847,9 +1058,9 @@ export default function Tasks() {
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Supprimer cette tâche ?</AlertDialogTitle>
+            <AlertDialogTitle>Supprimer cette mission ?</AlertDialogTitle>
             <AlertDialogDescription>
-              La tâche <strong>"{deleteTarget?.title}"</strong> sera définitivement supprimée.
+              La mission <strong>"{deleteTarget?.title}"</strong> sera définitivement supprimée.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { usePermissions } from '@/hooks/usePermissions';
-import { Settings as SettingsIcon, Save, Loader2, Plus, X, Briefcase } from 'lucide-react';
+import { Settings as SettingsIcon, Save, Loader2, Plus, X, Briefcase, Brain } from 'lucide-react';
 import { DEPARTMENTS, getPositionsForDepartment, GLOBAL_POSITIONS } from '@/lib/departments';
 
 export default function Settings() {
@@ -32,6 +32,13 @@ export default function Settings() {
     absence_deduction_amount: 5000,
     currency: 'FCFA',
   });
+  const [aiForm, setAiForm] = useState({
+    ai_api_key: '',
+    ai_provider: 'openai',
+    ai_model: 'gpt-4o-mini',
+    ai_base_url: 'https://api.openai.com/v1',
+  });
+  const [savingAi, setSavingAi] = useState(false);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -53,6 +60,14 @@ export default function Settings() {
         if (map.custom_positions && typeof map.custom_positions === 'object') {
           setCustomPositions(map.custom_positions as Record<string, string[]>);
         }
+
+        // AI settings
+        setAiForm({
+          ai_api_key: String(map.ai_api_key || '').replace(/"/g, ''),
+          ai_provider: String(map.ai_provider || 'openai').replace(/"/g, ''),
+          ai_model: String(map.ai_model || 'gpt-4o-mini').replace(/"/g, ''),
+          ai_base_url: String(map.ai_base_url || 'https://api.openai.com/v1').replace(/"/g, ''),
+        });
       }
       setLoading(false);
     };
@@ -99,6 +114,29 @@ export default function Settings() {
       toast({ title: '✅ Paramètres sauvegardés' });
     }
     setSaving(false);
+  };
+
+  const handleSaveAi = async () => {
+    setSavingAi(true);
+    const aiUpdates = [
+      { key: 'ai_api_key', value: aiForm.ai_api_key },
+      { key: 'ai_provider', value: aiForm.ai_provider },
+      { key: 'ai_model', value: aiForm.ai_model },
+      { key: 'ai_base_url', value: aiForm.ai_base_url },
+    ];
+    let hasError = false;
+    for (const u of aiUpdates) {
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert({ key: u.key, value: u.value as any }, { onConflict: 'key' });
+      if (error) hasError = true;
+    }
+    if (hasError) {
+      toast({ title: 'Erreur', description: 'Impossible de sauvegarder la configuration IA', variant: 'destructive' });
+    } else {
+      toast({ title: '✅ Configuration IA sauvegardée' });
+    }
+    setSavingAi(false);
   };
 
   const handleAddPosition = async () => {
@@ -334,6 +372,80 @@ export default function Settings() {
                   </div>
                 ))}
               </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* AI Configuration */}
+        <Card className="stat-card mb-6">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Brain className="h-4 w-4" />
+              Configuration IA (Analyse des Rapports)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Fournisseur IA</Label>
+              <Select
+                value={aiForm.ai_provider}
+                onValueChange={(v) => {
+                  const defaults: Record<string, { model: string; url: string }> = {
+                    openai: { model: 'gpt-4o-mini', url: 'https://api.openai.com/v1' },
+                    deepseek: { model: 'deepseek-chat', url: 'https://api.deepseek.com/v1' },
+                    mistral: { model: 'mistral-small-latest', url: 'https://api.mistral.ai/v1' },
+                    custom: { model: '', url: '' },
+                  };
+                  const d = defaults[v] || defaults.custom;
+                  setAiForm({ ...aiForm, ai_provider: v, ai_model: d.model, ai_base_url: d.url });
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="openai">OpenAI (GPT)</SelectItem>
+                  <SelectItem value="deepseek">DeepSeek</SelectItem>
+                  <SelectItem value="mistral">Mistral AI</SelectItem>
+                  <SelectItem value="custom">Autre (personnalisé)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Clé API</Label>
+              <Input
+                type="password"
+                value={aiForm.ai_api_key}
+                onChange={(e) => setAiForm({ ...aiForm, ai_api_key: e.target.value })}
+                placeholder="sk-..."
+              />
+              <p className="text-xs text-muted-foreground">
+                Votre clé API ne sera jamais partagée. Elle est stockée de manière sécurisée.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Modèle</Label>
+                <Input
+                  value={aiForm.ai_model}
+                  onChange={(e) => setAiForm({ ...aiForm, ai_model: e.target.value })}
+                  placeholder="gpt-4o-mini"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>URL de base</Label>
+                <Input
+                  value={aiForm.ai_base_url}
+                  onChange={(e) => setAiForm({ ...aiForm, ai_base_url: e.target.value })}
+                  placeholder="https://api.openai.com/v1"
+                />
+              </div>
+            </div>
+            {!readOnly && (
+              <Button onClick={handleSaveAi} disabled={savingAi} variant="outline" className="w-full">
+                {savingAi ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Brain className="h-4 w-4 mr-2" />}
+                Sauvegarder la configuration IA
+              </Button>
             )}
           </CardContent>
         </Card>

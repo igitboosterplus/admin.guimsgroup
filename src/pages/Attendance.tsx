@@ -196,27 +196,51 @@ export default function Attendance() {
     if (!todayRecord) return;
     setSubmitting(true);
 
+    const now = new Date();
     const { error } = await supabase
       .from('attendance')
-      .update({ clock_out: new Date().toISOString() })
+      .update({ clock_out: now.toISOString() })
       .eq('id', todayRecord.id);
 
     if (error) {
       toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
     } else {
-      setTodayRecord({ ...todayRecord, clock_out: new Date().toISOString() });
-      toast({ title: '👋 Départ enregistré', description: `À ${format(new Date(), 'HH:mm')}` });
+      setTodayRecord({ ...todayRecord, clock_out: now.toISOString() });
+      // Warn if early departure
+      if (todaySchedule) {
+        const [endH, endM] = todaySchedule.end.split(':').map(Number);
+        const scheduledEnd = new Date(now);
+        scheduledEnd.setHours(endH, endM, 0, 0);
+        if (now < new Date(scheduledEnd.getTime() - 30 * 60000)) {
+          toast({ title: '⚠️ Départ anticipé', description: `Vous partez avant ${todaySchedule.end} (fin prévue)`, variant: 'destructive' });
+        } else {
+          toast({ title: '👋 Départ enregistré', description: `À ${format(now, 'HH:mm')}` });
+        }
+      } else {
+        toast({ title: '👋 Départ enregistré', description: `À ${format(now, 'HH:mm')}` });
+      }
     }
     setSubmitting(false);
   };
 
   const handleFixClockOut = async () => {
     if (!fixRecord || !fixTime) return;
-    setFixSubmitting(true);
 
     // Build full ISO from the record's clock_in date + entered time
     const dateStr = fixRecord.clock_in.split('T')[0];
     const clockOutISO = new Date(`${dateStr}T${fixTime}:00`).toISOString();
+
+    // Validate: clock_out must be after clock_in
+    if (new Date(clockOutISO) <= new Date(fixRecord.clock_in)) {
+      toast({
+        title: 'Erreur',
+        description: `L'heure de départ doit être après l'arrivée (${format(new Date(fixRecord.clock_in), 'HH:mm')})`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setFixSubmitting(true);
 
     const { error } = await supabase
       .from('attendance')
