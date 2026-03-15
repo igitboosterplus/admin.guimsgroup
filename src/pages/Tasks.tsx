@@ -61,6 +61,15 @@ import {
   LayoutGrid,
   List,
   User,
+  MessageSquare,
+  Send,
+  ListChecks,
+  X,
+  Square,
+  CheckSquare,
+  Timer,
+  ArrowRight,
+  Filter,
 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
@@ -103,6 +112,23 @@ interface EmployeeOption {
   department: string | null;
 }
 
+interface TaskComment {
+  id: string;
+  task_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+  user_name?: string;
+}
+
+interface ChecklistItem {
+  id: string;
+  task_id: string;
+  label: string;
+  is_done: boolean;
+  sort_order: number;
+}
+
 const emptyForm: TaskForm = {
   title: '',
   description: '',
@@ -138,6 +164,20 @@ const statusConfig: Record<string, { label: string; variant: 'default' | 'second
   overdue:     { label: 'En retard',   variant: 'destructive', icon: AlertTriangle },
 };
 
+function deadlineLabel(dueDate: string | null, status: string): { text: string; className: string } | null {
+  if (!dueDate || status === 'completed') return null;
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const due = new Date(dueDate);
+  due.setHours(0, 0, 0, 0);
+  const diffDays = Math.ceil((due.getTime() - now.getTime()) / (86400000));
+  if (diffDays < 0) return { text: `${Math.abs(diffDays)}j de retard`, className: 'text-destructive font-semibold' };
+  if (diffDays === 0) return { text: "Aujourd'hui", className: 'text-orange-600 font-semibold' };
+  if (diffDays === 1) return { text: 'Demain', className: 'text-orange-500' };
+  if (diffDays <= 3) return { text: `Dans ${diffDays}j`, className: 'text-yellow-600' };
+  return { text: `Dans ${diffDays}j`, className: 'text-muted-foreground' };
+}
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
@@ -168,9 +208,21 @@ export default function Tasks() {
   // Delete dialog
   const [deleteTarget, setDeleteTarget] = useState<Task | null>(null);
 
+  // Comments
+  const [comments, setComments] = useState<TaskComment[]>([]);
+  const [commentText, setCommentText] = useState('');
+  const [loadingComments, setLoadingComments] = useState(false);
+  const [sendingComment, setSendingComment] = useState(false);
+
+  // Checklist
+  const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
+  const [newCheckItem, setNewCheckItem] = useState('');
+  const [loadingChecklist, setLoadingChecklist] = useState(false);
+
   // Filters
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
+  const [employeeFilter, setEmployeeFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'board'>(isAdmin ? 'list' : 'board');
 
@@ -234,6 +286,126 @@ export default function Tasks() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  /* ---------------------------------------------------------------- */
+  /*  Comments                                                         */
+  /* ---------------------------------------------------------------- */
+  const fetchComments = useCallback(async (taskId: string) => {
+    setLoadingComments(true);
+    const { data } = await supabase
+      .from('task_comments')
+      .select('*')
+      .eq('task_id', taskId)
+      .order('created_at', { ascending: true });
+    if (data) {
+      // Map user names
+      const userIds = [...new Set(data.map((c) => c.user_id))];
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('user_id, full_name')
+        .in('user_id', userIds);
+      const nameMap: Record<string, string> = {};
+      profiles?.forEach((p) => { nameMap[p.user_id] = p.full_name; });
+      setComments(data.map((c) => ({ ...c, user_name: nameMap[c.user_id] || 'Inconnu' })));
+    }
+    setLoadingComments(false);
+  }, []);
+
+  const handleSendComment = async (taskId: string) => {
+    if (!commentText.trim() || !user) return;
+    setSendingComment(true);
+    const { error } = await supabase.from('task_comments').insert({
+      task_id: taskId,
+      user_id: user.id,
+      content: commentText.trim(),
+    });
+    if (error) {
+      toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
+    } else {
+      setCommentText('');
+      fetchComments(taskId);
+    }
+    setSendingComment(false);
+  };
+
+  /* ---------------------------------------------------------------- */
+  /*  Checklist                                                        */
+  /* ---------------------------------------------------------------- */
+  const fetchChecklist = useCallback(async (taskId: string) => {
+    setLoadingChecklist(true);
+    const { data } = await supabase
+      .from('task_checklist')
+      .select('*')
+      .eq('task_id', taskId)
+      .order('sort_order', { ascending: true });
+    if (data) setChecklist(data);
+    setLoadingChecklist(false);
+  }, []);
+
+  const handleToggleCheckItem = async (item: ChecklistItem) => {
+    const { error } = await supabase
+      .from('task_checklist')
+      .update({ is_done: !item.is_done })
+      .eq('id', item.id);
+    if (!error) {
+      setChecklist((prev) => prev.map((c) => c.id === item.id ? { ...c, is_done: !c.is_done } : c));
+    }
+  };
+
+  const handleAddCheckItem = async (taskId: string) => {
+    if (!newCheckItem.trim()) return;
+    const { error } = await supabase.from('task_checklist').insert({
+      task_id: taskId,
+      label: newCheckItem.trim(),
+      sort_order: checklist.length,
+    });
+    if (error) {
+      toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
+    } else {
+      setNewCheckItem('');
+      fetchChecklist(taskId);
+    }
+  };
+
+  const handleDeleteCheckItem = async (itemId: string, taskId: string) => {
+    await supabase.from('task_checklist').delete().eq('id', itemId);
+    fetchChecklist(taskId);
+  };
+
+  // When detail target changes, load associated data
+  useEffect(() => {
+    if (detailTarget) {
+      fetchComments(detailTarget.id);
+      fetchChecklist(detailTarget.id);
+      setCommentText('');
+      setNewCheckItem('');
+    } else {
+      setComments([]);
+      setChecklist([]);
+    }
+  }, [detailTarget, fetchComments, fetchChecklist]);
+
+  /* ---------------------------------------------------------------- */
+  /*  Start mission (employee shortcut)                                */
+  /* ---------------------------------------------------------------- */
+  const handleStartMission = async (task: Task) => {
+    if (task.status !== 'pending') return;
+    const { error } = await supabase
+      .from('tasks')
+      .update({
+        status: 'in_progress',
+        started_at: new Date().toISOString(),
+        progress: Math.max(task.progress, 5),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', task.id);
+    if (error) {
+      toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: '🚀 Mission démarrée', description: task.title });
+      fetchData();
+    }
+  };
 
   /* ---------------------------------------------------------------- */
   /*  Create / Edit task                                               */
@@ -376,16 +548,21 @@ export default function Tasks() {
   const filtered = tasks.filter((t) => {
     if (statusFilter !== 'all' && t.status !== statusFilter) return false;
     if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false;
+    if (employeeFilter !== 'all' && t.assigned_to !== employeeFilter) return false;
     if (search) {
       const s = search.toLowerCase();
       if (
         !t.title.toLowerCase().includes(s) &&
         !(t.assigned_to_name || '').toLowerCase().includes(s) &&
-        !(t.category || '').toLowerCase().includes(s)
+        !(t.category || '').toLowerCase().includes(s) &&
+        !(t.description || '').toLowerCase().includes(s)
       ) return false;
     }
     return true;
   });
+
+  // Available categories for filter chips
+  const categories = [...new Set(tasks.map((t) => t.category).filter(Boolean))] as string[];
 
   // Stats
   const totalTasks = tasks.length;
@@ -565,7 +742,36 @@ export default function Tasks() {
                 <SelectItem value="urgent">Urgente</SelectItem>
               </SelectContent>
             </Select>
+            {isAdmin && (
+              <Select value={employeeFilter} onValueChange={setEmployeeFilter}>
+                <SelectTrigger className="w-44">
+                  <SelectValue placeholder="Employé" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tous les employés</SelectItem>
+                  {employees.map((emp) => (
+                    <SelectItem key={emp.user_id} value={emp.user_id}>{emp.full_name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
+          {/* Category chips */}
+          {categories.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t">
+              <span className="text-xs text-muted-foreground mr-1 self-center">Catégories:</span>
+              {categories.map((cat) => (
+                <Badge
+                  key={cat}
+                  variant={search === cat ? 'default' : 'outline'}
+                  className="cursor-pointer text-xs"
+                  onClick={() => setSearch(search === cat ? '' : cat)}
+                >
+                  {cat}
+                </Badge>
+              ))}
+            </div>
+          )}
         </Card>
 
         {/* ===== BOARD VIEW (Kanban) ===== */}
@@ -593,6 +799,7 @@ export default function Tasks() {
                   <div className="space-y-2 px-1 pb-2 min-h-[100px]">
                     {col.tasks.map((task) => {
                       const pc = priorityConfig[task.priority];
+                      const dl = deadlineLabel(task.due_date, task.status);
                       return (
                         <Card
                           key={task.id}
@@ -622,14 +829,31 @@ export default function Tasks() {
                           </div>
                           <div className="flex items-center justify-between mt-2">
                             <div className="flex items-center gap-1.5">
-                              {task.due_date && (
-                                <span className={`text-[10px] flex items-center gap-0.5 ${task.status === 'overdue' ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>
+                              {dl && (
+                                <span className={`text-[10px] flex items-center gap-0.5 ${dl.className}`}>
+                                  <Timer className="h-3 w-3" />
+                                  {dl.text}
+                                </span>
+                              )}
+                              {!dl && task.due_date && (
+                                <span className="text-[10px] flex items-center gap-0.5 text-muted-foreground">
                                   <CalendarDays className="h-3 w-3" />
                                   {fmtDate(task.due_date)}
                                 </span>
                               )}
                             </div>
                             <div className="flex items-center gap-1">
+                              {task.status === 'pending' && !isAdmin && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 w-6 p-0 text-green-600"
+                                  title="Démarrer la mission"
+                                  onClick={(e) => { e.stopPropagation(); handleStartMission(task); }}
+                                >
+                                  <ArrowRight className="h-3 w-3" />
+                                </Button>
+                              )}
                               {task.status !== 'completed' && (
                                 <Button
                                   size="sm"
@@ -712,6 +936,7 @@ export default function Tasks() {
                     const sc = statusConfig[task.status];
                     const pc = priorityConfig[task.priority];
                     const StatusIcon = sc.icon;
+                    const dl = deadlineLabel(task.due_date, task.status);
                     return (
                       <TableRow key={task.id} className={task.status === 'overdue' ? 'bg-destructive/5' : ''}>
                         <TableCell>
@@ -734,10 +959,10 @@ export default function Tasks() {
                           <Badge variant={pc.variant} className="text-xs">{pc.label}</Badge>
                         </TableCell>
                         <TableCell className="text-sm">
-                          {task.due_date ? (
-                            <span className={task.status === 'overdue' ? 'text-destructive font-medium' : ''}>
-                              {fmtDate(task.due_date)}
-                            </span>
+                          {dl ? (
+                            <span className={dl.className}>{dl.text}</span>
+                          ) : task.due_date ? (
+                            <span>{fmtDate(task.due_date)}</span>
                           ) : '—'}
                         </TableCell>
                         <TableCell>
@@ -770,6 +995,17 @@ export default function Tasks() {
                             <Button size="sm" variant="ghost" title="Détails" onClick={() => setDetailTarget(task)}>
                               <Eye className="h-4 w-4" />
                             </Button>
+                            {task.status === 'pending' && !isAdmin && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                title="Démarrer"
+                                className="text-green-600"
+                                onClick={() => handleStartMission(task)}
+                              >
+                                <ArrowRight className="h-4 w-4" />
+                              </Button>
+                            )}
                             {task.status !== 'completed' && (
                               <Button
                                 size="sm"
@@ -967,84 +1203,259 @@ export default function Tasks() {
       </Dialog>
 
       {/* ============================================================ */}
-      {/*  DETAIL DIALOG                                               */}
+      {/*  DETAIL DIALOG (enhanced with comments + checklist)          */}
       {/* ============================================================ */}
       <Dialog open={!!detailTarget} onOpenChange={(open) => { if (!open) setDetailTarget(null); }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Détails de la mission</DialogTitle>
           </DialogHeader>
           {detailTarget && (
-            <div className="space-y-3 py-2 text-sm">
-              <div>
-                <p className="font-semibold text-base">{detailTarget.title}</p>
-                {detailTarget.category && (
-                  <Badge variant="outline" className="mt-1">{detailTarget.category}</Badge>
-                )}
-              </div>
-              {detailTarget.description && (
-                <div className="p-3 bg-muted rounded text-sm">{detailTarget.description}</div>
-              )}
-              <div className="grid grid-cols-2 gap-3">
+            <Tabs defaultValue="details" className="mt-2">
+              <TabsList className="w-full grid grid-cols-3">
+                <TabsTrigger value="details">Détails</TabsTrigger>
+                <TabsTrigger value="checklist" className="gap-1.5">
+                  <ListChecks className="h-3.5 w-3.5" />
+                  Checklist
+                  {checklist.length > 0 && (
+                    <Badge variant="secondary" className="text-[10px] ml-1">{checklist.filter(c => c.is_done).length}/{checklist.length}</Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="comments" className="gap-1.5">
+                  <MessageSquare className="h-3.5 w-3.5" />
+                  Discussion
+                  {comments.length > 0 && (
+                    <Badge variant="secondary" className="text-[10px] ml-1">{comments.length}</Badge>
+                  )}
+                </TabsTrigger>
+              </TabsList>
+
+              {/* === Details Tab === */}
+              <TabsContent value="details" className="space-y-3 text-sm mt-4">
                 <div>
-                  <span className="text-muted-foreground">Assignée à</span>
-                  <p className="font-medium">{detailTarget.assigned_to_name}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Assignée par</span>
-                  <p className="font-medium">{detailTarget.assigned_by_name}</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <span className="text-muted-foreground">Priorité</span>
-                  <div className="mt-1">
-                    <Badge variant={priorityConfig[detailTarget.priority].variant}>
-                      {priorityConfig[detailTarget.priority].label}
-                    </Badge>
-                  </div>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Statut</span>
-                  <div className="mt-1">
-                    <Badge variant={statusConfig[detailTarget.status].variant}>
-                      {statusConfig[detailTarget.status].label}
-                    </Badge>
-                  </div>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <span className="text-muted-foreground">Échéance</span>
-                  <p className="font-medium">{fmtDate(detailTarget.due_date)}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Progression</span>
+                  <p className="font-semibold text-base">{detailTarget.title}</p>
                   <div className="flex items-center gap-2 mt-1">
-                    <div className="flex-1 h-2.5 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${
-                          detailTarget.progress === 100 ? 'bg-green-500' : 'bg-blue-500'
-                        }`}
-                        style={{ width: `${detailTarget.progress}%` }}
-                      />
-                    </div>
-                    <span className="font-bold">{detailTarget.progress}%</span>
+                    {detailTarget.category && (
+                      <Badge variant="outline">{detailTarget.category}</Badge>
+                    )}
+                    {(() => {
+                      const dl = deadlineLabel(detailTarget.due_date, detailTarget.status);
+                      return dl ? (
+                        <span className={`text-xs flex items-center gap-1 ${dl.className}`}>
+                          <Timer className="h-3 w-3" />{dl.text}
+                        </span>
+                      ) : null;
+                    })()}
                   </div>
                 </div>
-              </div>
-              {detailTarget.completion_note && (
-                <div>
-                  <span className="text-muted-foreground">Compte-rendu</span>
-                  <div className="mt-1 p-3 bg-muted rounded text-sm">{detailTarget.completion_note}</div>
+                {detailTarget.description && (
+                  <div className="p-3 bg-muted rounded text-sm whitespace-pre-wrap">{detailTarget.description}</div>
+                )}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <span className="text-muted-foreground">Assignée à</span>
+                    <p className="font-medium">{detailTarget.assigned_to_name}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Assignée par</span>
+                    <p className="font-medium">{detailTarget.assigned_by_name}</p>
+                  </div>
                 </div>
-              )}
-              <div className="flex justify-between text-xs text-muted-foreground pt-2 border-t">
-                <span>Créée le {fmtDate(detailTarget.created_at)}</span>
-                {detailTarget.started_at && <span>Démarrée le {fmtDate(detailTarget.started_at)}</span>}
-                {detailTarget.completed_at && <span>Terminée le {fmtDate(detailTarget.completed_at)}</span>}
-              </div>
-            </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <span className="text-muted-foreground">Priorité</span>
+                    <div className="mt-1">
+                      <Badge variant={priorityConfig[detailTarget.priority].variant}>
+                        {priorityConfig[detailTarget.priority].label}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Statut</span>
+                    <div className="mt-1">
+                      <Badge variant={statusConfig[detailTarget.status].variant}>
+                        {statusConfig[detailTarget.status].label}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <span className="text-muted-foreground">Échéance</span>
+                    <p className="font-medium">{fmtDate(detailTarget.due_date)}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Progression</span>
+                    <div className="flex items-center gap-2 mt-1">
+                      <div className="flex-1 h-2.5 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${
+                            detailTarget.progress === 100 ? 'bg-green-500' : 'bg-blue-500'
+                          }`}
+                          style={{ width: `${detailTarget.progress}%` }}
+                        />
+                      </div>
+                      <span className="font-bold">{detailTarget.progress}%</span>
+                    </div>
+                  </div>
+                </div>
+                {detailTarget.completion_note && (
+                  <div>
+                    <span className="text-muted-foreground">Compte-rendu</span>
+                    <div className="mt-1 p-3 bg-muted rounded text-sm whitespace-pre-wrap">{detailTarget.completion_note}</div>
+                  </div>
+                )}
+                <div className="flex justify-between text-xs text-muted-foreground pt-2 border-t">
+                  <span>Créée le {fmtDate(detailTarget.created_at)}</span>
+                  {detailTarget.started_at && <span>Démarrée le {fmtDate(detailTarget.started_at)}</span>}
+                  {detailTarget.completed_at && <span>Terminée le {fmtDate(detailTarget.completed_at)}</span>}
+                </div>
+                {/* Quick actions for employee */}
+                {detailTarget.status !== 'completed' && (
+                  <div className="flex gap-2 pt-2 border-t">
+                    {detailTarget.status === 'pending' && !isAdmin && (
+                      <Button size="sm" onClick={() => { handleStartMission(detailTarget); setDetailTarget(null); }}>
+                        <ArrowRight className="h-4 w-4 mr-1.5" />
+                        Démarrer la mission
+                      </Button>
+                    )}
+                    <Button size="sm" variant="outline" onClick={() => { openProgress(detailTarget); }}>
+                      <Play className="h-4 w-4 mr-1.5" />
+                      Mettre à jour
+                    </Button>
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* === Checklist Tab === */}
+              <TabsContent value="checklist" className="mt-4">
+                {loadingChecklist ? (
+                  <div className="flex justify-center py-6">
+                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {/* Progress */}
+                    {checklist.length > 0 && (
+                      <div className="mb-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs text-muted-foreground">
+                            {checklist.filter(c => c.is_done).length}/{checklist.length} complétées
+                          </span>
+                          <span className="text-xs font-medium">
+                            {Math.round(checklist.filter(c => c.is_done).length / checklist.length * 100)}%
+                          </span>
+                        </div>
+                        <Progress value={checklist.filter(c => c.is_done).length / checklist.length * 100} className="h-2" />
+                      </div>
+                    )}
+                    {/* Items */}
+                    {checklist.map((item) => (
+                      <div key={item.id} className="flex items-center gap-2 p-2 rounded hover:bg-muted/50 group">
+                        <button
+                          onClick={() => handleToggleCheckItem(item)}
+                          className="shrink-0"
+                        >
+                          {item.is_done ? (
+                            <CheckSquare className="h-5 w-5 text-green-600" />
+                          ) : (
+                            <Square className="h-5 w-5 text-muted-foreground" />
+                          )}
+                        </button>
+                        <span className={`text-sm flex-1 ${item.is_done ? 'line-through text-muted-foreground' : ''}`}>
+                          {item.label}
+                        </span>
+                        {isAdmin && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 text-destructive"
+                            onClick={() => handleDeleteCheckItem(item.id, detailTarget.id)}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                    {checklist.length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center py-4">Aucun élément dans la checklist</p>
+                    )}
+                    {/* Add item (admin only) */}
+                    {isAdmin && (
+                      <div className="flex gap-2 pt-3 border-t mt-3">
+                        <Input
+                          placeholder="Ajouter un élément…"
+                          value={newCheckItem}
+                          onChange={(e) => setNewCheckItem(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') handleAddCheckItem(detailTarget.id); }}
+                          className="flex-1"
+                        />
+                        <Button size="sm" onClick={() => handleAddCheckItem(detailTarget.id)} disabled={!newCheckItem.trim()}>
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* === Comments Tab === */}
+              <TabsContent value="comments" className="mt-4">
+                {loadingComments ? (
+                  <div className="flex justify-center py-6">
+                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {/* Messages */}
+                    <div className="space-y-3 max-h-[300px] overflow-y-auto">
+                      {comments.length === 0 && (
+                        <p className="text-sm text-muted-foreground text-center py-6">
+                          Aucun commentaire. Commencez la discussion !
+                        </p>
+                      )}
+                      {comments.map((c) => {
+                        const isMe = c.user_id === user?.id;
+                        return (
+                          <div key={c.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-[80%] p-3 rounded-lg text-sm ${
+                              isMe
+                                ? 'bg-primary text-primary-foreground rounded-br-none'
+                                : 'bg-muted rounded-bl-none'
+                            }`}>
+                              {!isMe && (
+                                <p className="font-semibold text-xs mb-1">{c.user_name}</p>
+                              )}
+                              <p className="whitespace-pre-wrap">{c.content}</p>
+                              <p className={`text-[10px] mt-1 ${isMe ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
+                                {new Date(c.created_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {/* Input */}
+                    <div className="flex gap-2 pt-3 border-t">
+                      <Input
+                        placeholder="Écrire un commentaire…"
+                        value={commentText}
+                        onChange={(e) => setCommentText(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendComment(detailTarget.id); } }}
+                        className="flex-1"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={() => handleSendComment(detailTarget.id)}
+                        disabled={!commentText.trim() || sendingComment}
+                      >
+                        {sendingComment ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDetailTarget(null)}>Fermer</Button>
