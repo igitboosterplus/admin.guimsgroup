@@ -32,7 +32,7 @@ export default function Attendance() {
   const [todayRecord, setTodayRecord] = useState<AttendanceRecord | null>(null);
   const [history, setHistory] = useState<AttendanceRecord[]>([]);
   const [currentIp, setCurrentIp] = useState<string>('');
-  const [officeIp, setOfficeIp] = useState<string>('0.0.0.0');
+  const [officeIps, setOfficeIps] = useState<string[]>(['0.0.0.0']);
   const [workStartTime, setWorkStartTime] = useState<string>('08:00');
   const [todaySchedule, setTodaySchedule] = useState<{ start: string; end: string } | null | undefined>(undefined);
   const [loading, setLoading] = useState(true);
@@ -64,7 +64,7 @@ export default function Attendance() {
       if (settings) {
         const ipSetting = settings.find((s) => s.key === 'office_ip');
         const startSetting = settings.find((s) => s.key === 'work_start_time');
-        if (ipSetting) setOfficeIp(String(ipSetting.value ?? '').replace(/"/g, ''));
+        if (ipSetting) setOfficeIps(String(ipSetting.value ?? '0.0.0.0').replace(/"/g, '').split(',').map(s => s.trim()).filter(Boolean));
         if (startSetting) setWorkStartTime(String(startSetting.value ?? '').replace(/"/g, ''));
       }
 
@@ -163,23 +163,28 @@ export default function Attendance() {
   }, [user, page, role, isAdminOrManager]);
 
   useEffect(() => {
-    if (currentIp && officeIp) {
-      // Bureau users must use office IP; terrain users can use any
+    if (currentIp && officeIps.length) {
       if (role === 'bureau') {
-        if (officeIp === '0.0.0.0') {
+        // Check if all IPs are disabled
+        if (officeIps.length === 1 && officeIps[0] === '0.0.0.0') {
           setIpAllowed(true);
-        } else if (officeIp.includes('*')) {
-          // Wildcard matching: 196.168.1.* matches any IP starting with 196.168.1.
-          const pattern = officeIp.split('.').map(seg => seg === '*' ? '\\d+' : seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\.');
-          setIpAllowed(new RegExp(`^${pattern}$`).test(currentIp));
         } else {
-          setIpAllowed(currentIp === officeIp);
+          // Match against any of the configured IPs
+          const match = officeIps.some(ip => {
+            if (!ip || ip === '0.0.0.0') return false;
+            if (ip.includes('*')) {
+              const pattern = ip.split('.').map(seg => seg === '*' ? '\\d+' : seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\.');
+              return new RegExp(`^${pattern}$`).test(currentIp);
+            }
+            return currentIp === ip;
+          });
+          setIpAllowed(match);
         }
       } else {
         setIpAllowed(true);
       }
     }
-  }, [currentIp, officeIp, role]);
+  }, [currentIp, officeIps, role]);
 
   const handleClockIn = async () => {
     if (!user || !ipAllowed) return;

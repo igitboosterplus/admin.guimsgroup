@@ -25,7 +25,7 @@ export default function Settings() {
   const [form, setForm] = useState({
     work_start_time: '08:00',
     work_end_time: '17:00',
-    office_ip: '0.0.0.0',
+    office_ips: ['0.0.0.0', '', '', ''],
     late_deduction_type: 'fixed',
     late_deduction_amount: 2000,
     absence_deduction_type: 'fixed',
@@ -50,7 +50,11 @@ export default function Settings() {
         setForm({
           work_start_time: String(map.work_start_time || '08:00').replace(/"/g, ''),
           work_end_time: String(map.work_end_time || '17:00').replace(/"/g, ''),
-          office_ip: String(map.office_ip || '0.0.0.0').replace(/"/g, ''),
+          office_ips: (() => {
+            const raw = String(map.office_ip || '0.0.0.0').replace(/"/g, '');
+            const parts = raw.split(',').map(s => s.trim());
+            return [parts[0] || '0.0.0.0', parts[1] || '', parts[2] || '', parts[3] || ''];
+          })(),
           late_deduction_type: map.late_deduction?.type || 'fixed',
           late_deduction_amount: map.late_deduction?.amount || 2000,
           absence_deduction_type: map.absence_deduction?.type || 'fixed',
@@ -80,9 +84,12 @@ export default function Settings() {
       toast({ title: 'Erreur', description: 'L\'heure d\'arrivée doit être avant l\'heure de départ.', variant: 'destructive' });
       return;
     }
-    if (form.office_ip !== '0.0.0.0' && !/^[\d.*]{1,3}\.[\d.*]{1,3}\.[\d.*]{1,3}\.[\d.*]{1,3}$/.test(form.office_ip)) {
-      toast({ title: 'Erreur', description: 'L\'adresse IP n\'est pas valide (format: x.x.x.x, x.x.x.* ou 0.0.0.0 pour désactiver).', variant: 'destructive' });
-      return;
+    const ipPattern = /^[\d.*]{1,3}\.[\d.*]{1,3}\.[\d.*]{1,3}\.[\d.*]{1,3}$/;
+    for (const ip of form.office_ips) {
+      if (ip && ip !== '0.0.0.0' && !ipPattern.test(ip)) {
+        toast({ title: 'Erreur', description: `L'adresse IP "${ip}" n'est pas valide (format: x.x.x.x ou x.x.x.*).`, variant: 'destructive' });
+        return;
+      }
     }
     if (form.late_deduction_amount < 0 || form.absence_deduction_amount < 0) {
       toast({ title: 'Erreur', description: 'Les montants de déduction doivent être positifs.', variant: 'destructive' });
@@ -93,7 +100,7 @@ export default function Settings() {
     const updates = [
       { key: 'work_start_time', value: form.work_start_time },
       { key: 'work_end_time', value: form.work_end_time },
-      { key: 'office_ip', value: form.office_ip },
+      { key: 'office_ip', value: form.office_ips.filter(ip => ip.trim()).join(',') || '0.0.0.0' },
       { key: 'late_deduction', value: { type: form.late_deduction_type, amount: form.late_deduction_amount } },
       { key: 'absence_deduction', value: { type: form.absence_deduction_type, amount: form.absence_deduction_amount } },
       { key: 'currency', value: form.currency },
@@ -233,23 +240,29 @@ export default function Settings() {
           </CardContent>
         </Card>
 
-        {/* Office IP */}
+        {/* Office IPs */}
         <Card className="stat-card mb-6">
           <CardHeader>
-            <CardTitle className="text-base">Adresse IP du bureau</CardTitle>
+            <CardTitle className="text-base">Adresses IP du bureau</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              <Label>IP fixe du WiFi bureau</Label>
-              <Input
-                value={form.office_ip}
-                onChange={(e) => setForm({ ...form, office_ip: e.target.value })}
-                placeholder="Ex: 196.168.1.1"
-              />
-              <p className="text-xs text-muted-foreground">
-                Mettre 0.0.0.0 pour désactiver. Utilisez * comme joker (ex: 196.168.1.* pour accepter toute la plage).
-              </p>
-            </div>
+          <CardContent className="space-y-3">
+            {form.office_ips.map((ip, idx) => (
+              <div key={idx} className="space-y-1">
+                <Label>IP {idx + 1}{idx === 0 ? ' (principale)' : ' (optionnelle)'}</Label>
+                <Input
+                  value={ip}
+                  onChange={(e) => {
+                    const updated = [...form.office_ips];
+                    updated[idx] = e.target.value;
+                    setForm({ ...form, office_ips: updated as [string, string, string, string] });
+                  }}
+                  placeholder={idx === 0 ? 'Ex: 196.168.1.* ou 0.0.0.0' : 'Laisser vide si non utilisé'}
+                />
+              </div>
+            ))}
+            <p className="text-xs text-muted-foreground">
+              Jusqu'à 4 adresses IP. Mettre 0.0.0.0 sur l'IP principale pour désactiver. Utilisez * comme joker (ex: 196.168.1.*).
+            </p>
           </CardContent>
         </Card>
 

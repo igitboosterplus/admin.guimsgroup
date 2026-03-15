@@ -15,7 +15,7 @@ export function usePresenceDetection() {
 
   const presenceState = useRef<PresenceState>('away');
   const departureTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const officeIp = useRef<string>('');
+  const officeIps = useRef<string[]>([]);
   const notifPermission = useRef<NotificationPermission>('default');
   const lastSeenOnSite = useRef<string | null>(null);
 
@@ -64,7 +64,7 @@ export function usePresenceDetection() {
   }, []);
 
   const checkPresence = useCallback(async () => {
-    if (!user || !officeIp.current || officeIp.current === '0.0.0.0') return;
+    if (!user || !officeIps.current.length || (officeIps.current.length === 1 && officeIps.current[0] === '0.0.0.0')) return;
 
     // Fetch current IP
     let currentIp = '';
@@ -76,9 +76,13 @@ export function usePresenceDetection() {
       return; // network error → skip this cycle
     }
 
-    const isOnSite = officeIp.current.includes('*')
-      ? new RegExp('^' + officeIp.current.split('.').map(seg => seg === '*' ? '\\d+' : seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\.') + '$').test(currentIp)
-      : currentIp === officeIp.current;
+    const isOnSite = officeIps.current.some(ip => {
+      if (!ip || ip === '0.0.0.0') return false;
+      if (ip.includes('*')) {
+        return new RegExp('^' + ip.split('.').map(seg => seg === '*' ? '\\d+' : seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\.') + '$').test(currentIp);
+      }
+      return currentIp === ip;
+    });
     const record = await getTodayRecord();
     const hasClockedIn = !!record;
     const hasClockedOut = !!record?.clock_out;
@@ -186,7 +190,7 @@ export function usePresenceDetection() {
       if (settings) {
         const ipSetting = settings.find((s) => s.key === 'office_ip');
         if (ipSetting) {
-          officeIp.current = String(ipSetting.value).replace(/"/g, '');
+          officeIps.current = String(ipSetting.value).replace(/"/g, '').split(',').map(s => s.trim()).filter(Boolean);
         }
       }
     };
