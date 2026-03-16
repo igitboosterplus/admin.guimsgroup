@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Download, X } from 'lucide-react';
+import { Download, X, Share, PlusSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+
+// Detect iOS Safari
+function isIos(): boolean {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+function isInStandaloneMode(): boolean {
+  return window.matchMedia('(display-mode: standalone)').matches
+    || ('standalone' in navigator && (navigator as unknown as { standalone: boolean }).standalone);
+}
 
 // SW registration & config push
 async function registerSW() {
@@ -62,6 +71,7 @@ interface BeforeInstallPromptEvent extends Event {
 
 export default function PwaInstallPrompt() {
   const [showBanner, setShowBanner] = useState(false);
+  const [showIosBanner, setShowIosBanner] = useState(false);
   const deferredPrompt = useRef<BeforeInstallPromptEvent | null>(null);
   const [installed, setInstalled] = useState(false);
 
@@ -71,18 +81,27 @@ export default function PwaInstallPrompt() {
     requestNotifPermission();
   }, []);
 
-  // Listen for install prompt
+  // Listen for install prompt (Android/Chrome/Edge) or show iOS guide
   useEffect(() => {
-    const alreadyInstalled = window.matchMedia('(display-mode: standalone)').matches;
-    if (alreadyInstalled) {
+    if (isInStandaloneMode()) {
       setInstalled(true);
       return;
     }
+
     const dismissed = sessionStorage.getItem('pwa-banner-dismissed');
+    if (dismissed) return;
+
+    // iOS: show custom guide
+    if (isIos()) {
+      setShowIosBanner(true);
+      return;
+    }
+
+    // Android/Desktop: use beforeinstallprompt
     const handler = (e: Event) => {
       e.preventDefault();
       deferredPrompt.current = e as BeforeInstallPromptEvent;
-      if (!dismissed) setShowBanner(true);
+      setShowBanner(true);
     };
     window.addEventListener('beforeinstallprompt', handler);
 
@@ -109,10 +128,50 @@ export default function PwaInstallPrompt() {
 
   const handleDismiss = useCallback(() => {
     setShowBanner(false);
+    setShowIosBanner(false);
     sessionStorage.setItem('pwa-banner-dismissed', '1');
   }, []);
 
-  if (!showBanner || installed) return null;
+  if (installed) return null;
+
+  // ─── iOS: guide to install manually ───
+  if (showIosBanner) {
+    return (
+      <div className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-md animate-in slide-in-from-bottom-4 duration-300">
+        <div className="rounded-xl border bg-card p-4 shadow-lg">
+          <div className="flex items-start gap-3">
+            <Download className="h-8 w-8 shrink-0 text-primary mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold">Installer HR Hub sur iPhone</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Pour recevoir les rappels de pointage :
+              </p>
+              <ol className="text-xs text-muted-foreground mt-2 space-y-1.5 list-none pl-0">
+                <li className="flex items-center gap-2">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">1</span>
+                  Appuyez sur <Share className="inline h-4 w-4 text-primary" /> (bouton Partager)
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">2</span>
+                  Faites défiler et tapez <PlusSquare className="inline h-4 w-4 text-primary" /> <strong>Sur l'écran d'accueil</strong>
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">3</span>
+                  Tapez <strong>Ajouter</strong> en haut à droite
+                </li>
+              </ol>
+            </div>
+            <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={handleDismiss}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Android / Desktop: auto install prompt ───
+  if (!showBanner) return null;
 
   return (
     <div className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-md animate-in slide-in-from-bottom-4 duration-300">
