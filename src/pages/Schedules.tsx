@@ -474,9 +474,6 @@ export default function Schedules() {
                   );
                 })}
               </div>
-              <p className="text-sm text-muted-foreground mt-4">
-                Total semaine : <strong>{getWeekTotal(schedule)}h</strong>
-              </p>
             </CardContent>
           </Card>
         )}
