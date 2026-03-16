@@ -20,8 +20,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   if (!user) return <Navigate to="/login" replace />;
 
-  // Compte archivé ou suspendu → rediriger vers login
-  if (profile?.archived || profile?.is_paused) return <Navigate to="/login" replace />;
+  // Compte archivé → rediriger vers login
+  if (profile?.archived) return <Navigate to="/login" replace />;
 
   // Not approved or rules not accepted → redirect to login (which shows pending screen)
   if (!isApproved || !rulesAccepted) return <Navigate to="/login" replace />;

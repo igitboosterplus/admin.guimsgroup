@@ -130,12 +130,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (data.user) {
       const { data: profileData } = await supabase
         .from('profiles')
-        .select('archived')
+        .select('archived, is_paused')
         .eq('user_id', data.user.id)
         .single();
       if (profileData?.archived) {
         await supabase.auth.signOut();
         return { error: new Error('Votre compte a été archivé. Veuillez contacter un administrateur.') };
+      }
+      if (profileData?.is_paused) {
+        await supabase.auth.signOut();
+        return { error: new Error('Votre compte est suspendu. Veuillez contacter un administrateur.') };
       }
     }
 

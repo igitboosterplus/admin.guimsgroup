@@ -108,7 +108,7 @@ La Direction Générale — GUIMS GROUP
 `.trim();
 
 export default function Login() {
-  const { user, loading, isApproved, rulesAccepted, signIn, signUp } = useAuth();
+  const { user, loading, isApproved, rulesAccepted, profile, signIn, signUp } = useAuth();
   const { toast } = useToast();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
@@ -142,8 +142,8 @@ export default function Login() {
     );
   }
 
-  // Redirect to dashboard if user is logged in and approved
-  if (user && isApproved && rulesAccepted) return <Navigate to="/dashboard" replace />;
+  // Redirect to dashboard if user is logged in, approved, and not paused/archived
+  if (user && isApproved && rulesAccepted && !profile?.archived && !profile?.is_paused) return <Navigate to="/dashboard" replace />;
 
   // User is logged in but pending approval
   if (user && rulesAccepted && !isApproved) {
