@@ -55,9 +55,13 @@ export default function Dashboard() {
         const today = new Date().toISOString().split('T')[0];
 
         if (role === 'admin' || role === 'manager') {
+          const tomorrow = new Date();
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          const tomorrowStr = tomorrow.toISOString().split('T')[0];
+
           const [employeesRes, attendanceRes, profilesRes] = await Promise.all([
             supabase.from('profiles').select('id', { count: 'exact' }).eq('is_approved', true).eq('archived', false).eq('is_paused', false),
-            supabase.from('attendance').select('*').gte('clock_in', today),
+            supabase.from('attendance').select('*').gte('clock_in', today).lt('clock_in', tomorrowStr),
             supabase.from('profiles').select('department').eq('is_approved', true).eq('archived', false).eq('is_paused', false),
           ]);
 
@@ -86,9 +90,6 @@ export default function Dashboard() {
         const weekStart = new Date();
         weekStart.setDate(weekStart.getDate() - 6);
         const weekStartStr = weekStart.toISOString().split('T')[0];
-        const tomorrowDate = new Date();
-        tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-        const tomorrowStr = tomorrowDate.toISOString().split('T')[0];
 
         const { data: weekAtt } = await supabase
           .from('attendance')
@@ -121,11 +122,14 @@ export default function Dashboard() {
     const fetchMyStats = async () => {
       if (!user) return;
       const today = new Date().toISOString().split('T')[0];
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowStr = tomorrow.toISOString().split('T')[0];
       const monthStart = today.substring(0, 7) + '-01';
 
       const [todayRes, monthRes] = await Promise.all([
-        supabase.from('attendance').select('status').eq('user_id', user.id).gte('clock_in', today).limit(1),
-        supabase.from('attendance').select('status').eq('user_id', user.id).gte('clock_in', monthStart),
+        supabase.from('attendance').select('status').eq('user_id', user.id).gte('clock_in', today).lt('clock_in', tomorrowStr).limit(1),
+        supabase.from('attendance').select('status, clock_in').eq('user_id', user.id).gte('clock_in', monthStart),
       ]);
 
       const todayRecord = todayRes.data?.[0];
@@ -140,7 +144,7 @@ export default function Dashboard() {
         if (d.getDay() !== 0) workingDays++; // exclude Sunday
         d.setDate(d.getDate() + 1);
       }
-      const uniqueDays = new Set(monthRecords.map((r) => r.status ? new Date(r.clock_in || '').toISOString().split('T')[0] : ''));
+      const uniqueDays = new Set(monthRecords.map((r: any) => r.clock_in ? new Date(r.clock_in).toISOString().split('T')[0] : '').filter(Boolean));
       const absents = Math.max(0, workingDays - uniqueDays.size);
 
       setMyStats({
