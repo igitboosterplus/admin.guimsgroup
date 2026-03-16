@@ -17,6 +17,7 @@ CREATE INDEX IF NOT EXISTS idx_employee_documents_status ON public.employee_docu
 CREATE INDEX IF NOT EXISTS idx_employee_documents_user_id ON public.employee_documents (user_id);
 
 -- Policy: Admins / managers peuvent mettre à jour les documents (validation)
+DROP POLICY IF EXISTS "Admins managers can update documents" ON public.employee_documents;
 CREATE POLICY "Admins managers can update documents" ON public.employee_documents
   FOR UPDATE USING (
     public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'manager')

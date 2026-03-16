@@ -33,7 +33,7 @@ ALTER TABLE public.attendance ADD COLUMN IF NOT EXISTS notes text;
 -- 6. Protéger les clés API : restreindre la lecture de certaines settings
 -- Créer une vue sécurisée pour les settings non-sensibles
 CREATE OR REPLACE VIEW public.safe_app_settings AS
-  SELECT id, key, value, created_at
+  SELECT id, key, value, updated_at
   FROM public.app_settings
   WHERE key NOT IN ('ai_api_key', 'ai_base_url');
 

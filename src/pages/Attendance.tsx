@@ -275,9 +275,11 @@ export default function Attendance() {
         } else {
           const match = officeIps.some(ip => {
             if (!ip || ip === '0.0.0.0') return false;
-            if (ip.includes('*')) {
-              const pattern = ip.split('.').map(seg => seg === '*' ? '\\d+' : seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\.');
-              return new RegExp(`^${pattern}$`).test(currentIp);
+            // Compare only the first 3 octets (X.X.X.*) — the 4th changes frequently on WiFi
+            const ipParts = ip.split('.');
+            const currentParts = currentIp.split('.');
+            if (ipParts.length === 4 && currentParts.length === 4) {
+              return ipParts.slice(0, 3).every((seg, i) => seg === '*' || seg === currentParts[i]);
             }
             return currentIp === ip;
           });
