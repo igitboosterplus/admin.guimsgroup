@@ -13,6 +13,9 @@ export interface EmployeeReportData {
   tasks_assigned: number;
   tasks_completed: number;
   tasks_overdue: number;
+  tasks_completion_rate?: number;
+  tasks_on_time_rate?: number;
+  task_score?: number;
   paid_leave_days: number;
   unpaid_leave_days: number;
   net_salary: number;
@@ -93,7 +96,7 @@ function buildPrompt(reports: EmployeeReportData[], month: string): string {
   ).join('\n');
 
   const employeeDetails = reports.map((r) =>
-    `- ${r.full_name} (${r.department || '?'}, ${r.position || '?'}): ${r.tasks_completed}/${r.tasks_assigned} tâches, ${r.tasks_overdue} en retard, ${r.presents} présences, ${r.lates} retards, ${r.absents} absences, salaire net: ${r.net_salary} FCFA`
+    `- ${r.full_name} (${r.department || '?'}, ${r.position || '?'}): ${r.tasks_completed}/${r.tasks_assigned} tâches (score: ${r.task_score ?? '?'}%, ponctualité: ${r.tasks_on_time_rate ?? '?'}%), ${r.tasks_overdue} en retard, ${r.presents} présences, ${r.lates} retards, ${r.absents} absences, salaire net: ${r.net_salary} FCFA`
   ).join('\n');
 
   return `Tu es un consultant RH expert pour une entreprise africaine (GUIMS GROUP). Analyse ces données du mois ${month} et donne un rapport stratégique en français.

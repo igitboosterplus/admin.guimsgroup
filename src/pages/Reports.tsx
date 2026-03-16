@@ -48,6 +48,10 @@ interface EmployeeReport {
   tasks_assigned: number;
   tasks_completed: number;
   tasks_overdue: number;
+  tasks_completion_rate: number;
+  tasks_on_time_rate: number;
+  tasks_avg_days: number;
+  task_score: number;
 }
 
 export default function Reports() {
@@ -253,6 +257,31 @@ export default function Reports() {
         const today = new Date().toISOString().split('T')[0];
         const tasksOverdue = empTasks.filter((t) => t.due_date && t.due_date < today && t.status !== 'completed').length;
 
+        // Enhanced task metrics
+        const completionRate = tasksAssigned > 0 ? Math.round((tasksCompleted / tasksAssigned) * 100) : 0;
+        const completedWithDue = empTasks.filter((t) => t.status === 'completed' && t.due_date && t.completed_at);
+        const onTimeCount = completedWithDue.filter((t) => t.completed_at!.split('T')[0] <= t.due_date!).length;
+        const onTimeRate = completedWithDue.length > 0 ? Math.round((onTimeCount / completedWithDue.length) * 100) : (tasksCompleted > 0 ? 100 : 0);
+
+        // Avg days to complete (from created_at to completed_at)
+        let totalDays = 0;
+        let countWithDays = 0;
+        empTasks.filter((t) => t.status === 'completed' && t.completed_at).forEach((t) => {
+          const created = new Date(t.created_at);
+          const completed = new Date(t.completed_at!);
+          const days = Math.max(0, Math.round((completed.getTime() - created.getTime()) / 86400000));
+          totalDays += days;
+          countWithDays++;
+        });
+        const avgDays = countWithDays > 0 ? Math.round((totalDays / countWithDays) * 10) / 10 : 0;
+
+        // Task performance score: weighted combination
+        // 40% completion rate + 30% on-time rate + 30% (100 - overdue penalty)
+        const overduePenalty = tasksAssigned > 0 ? Math.min(100, (tasksOverdue / tasksAssigned) * 100) : 0;
+        const taskScore = tasksAssigned > 0
+          ? Math.round(completionRate * 0.4 + onTimeRate * 0.3 + (100 - overduePenalty) * 0.3)
+          : 0;
+
         return {
           user_id: p.user_id,
           full_name: p.full_name,
@@ -273,6 +302,10 @@ export default function Reports() {
           tasks_assigned: tasksAssigned,
           tasks_completed: tasksCompleted,
           tasks_overdue: tasksOverdue,
+          tasks_completion_rate: completionRate,
+          tasks_on_time_rate: onTimeRate,
+          tasks_avg_days: avgDays,
+          task_score: taskScore,
         };
       });
 
@@ -302,6 +335,9 @@ export default function Reports() {
         tasks_assigned: r.tasks_assigned,
         tasks_completed: r.tasks_completed,
         tasks_overdue: r.tasks_overdue,
+        tasks_completion_rate: r.tasks_completion_rate,
+        tasks_on_time_rate: r.tasks_on_time_rate,
+        task_score: r.task_score,
         paid_leave_days: r.paid_leave_days,
         unpaid_leave_days: r.unpaid_leave_days,
         net_salary: r.net_salary,
@@ -395,9 +431,9 @@ export default function Reports() {
 
   const exportCSV = () => {
     const separator = ';';
-    const headers = [`Nom${separator}Département${separator}Poste${separator}Salaire Base${separator}Présences${separator}Retards${separator}Heures Abs.${separator}Absences (j)${separator}C. Payé${separator}C. Non Payé${separator}Jours Sup.${separator}Bonus Sup.${separator}Déductions${separator}Salaire Net${separator}Tâches Assignées${separator}Tâches Terminées${separator}Tâches En Retard`];
+    const headers = [`Nom${separator}Département${separator}Poste${separator}Salaire Base${separator}Présences${separator}Retards${separator}Heures Abs.${separator}Absences (j)${separator}C. Payé${separator}C. Non Payé${separator}Jours Sup.${separator}Bonus Sup.${separator}Déductions${separator}Salaire Net${separator}Tâches Assignées${separator}Tâches Terminées${separator}Tâches En Retard${separator}Taux Complétion${separator}Ponctualité${separator}Score Tâches`];
     const rows = reports.map((r) =>
-      [r.full_name, r.department || '', r.position || '', r.base_salary, r.presents, r.lates, r.absence_hours, r.absents, r.paid_leave_days, r.unpaid_leave_days, r.overtime_days, r.overtime_bonus, r.deduction, r.net_salary, r.tasks_assigned, r.tasks_completed, r.tasks_overdue].join(separator)
+      [r.full_name, r.department || '', r.position || '', r.base_salary, r.presents, r.lates, r.absence_hours, r.absents, r.paid_leave_days, r.unpaid_leave_days, r.overtime_days, r.overtime_bonus, r.deduction, r.net_salary, r.tasks_assigned, r.tasks_completed, r.tasks_overdue, `${r.tasks_completion_rate}%`, `${r.tasks_on_time_rate}%`, `${r.task_score}%`].join(separator)
     );
     const csv = [...headers, ...rows].join('\n');
     const BOM = '\uFEFF';
@@ -436,14 +472,14 @@ export default function Reports() {
 
     doc.setFontSize(9);
     doc.text(
-      `Masse salariale nette: ${fmtNum(totalNet)} FCFA  |  Deductions: ${fmtNum(totalDeductions)} FCFA  |  Bonus sup.: +${fmtNum(totalBonus)} FCFA  |  Absences: ${totalAbsJours}j / ${totalAbsHeures}h  |  Tâches: ${totalTasksDone}/${totalTasksAssigned}`,
+      `Masse salariale nette: ${fmtNum(totalNet)} FCFA  |  Deductions: ${fmtNum(totalDeductions)} FCFA  |  Bonus sup.: +${fmtNum(totalBonus)} FCFA  |  Absences: ${totalAbsJours}j / ${totalAbsHeures}h  |  Tâches: ${totalTasksDone}/${totalTasksAssigned}  |  Score moyen: ${reports.filter(r => r.tasks_assigned > 0).length > 0 ? Math.round(reports.filter(r => r.tasks_assigned > 0).reduce((s, r) => s + r.task_score, 0) / reports.filter(r => r.tasks_assigned > 0).length) : 0}%`,
       14, 33
     );
 
     // Table
     autoTable(doc, {
       startY: 38,
-      head: [['Employé', 'Département', 'Prés.', 'Ret.', 'H.Abs.', 'Abs.(j)', 'C.Payé', 'C.N.Payé', 'J.Sup.', 'Sal. Base', 'Bonus', 'Déduc.', 'Sal. Net', 'Tâches', 'Terminées', 'En retard']],
+      head: [['Employé', 'Département', 'Prés.', 'Ret.', 'H.Abs.', 'Abs.(j)', 'C.Payé', 'C.N.Payé', 'J.Sup.', 'Sal. Base', 'Bonus', 'Déduc.', 'Sal. Net', 'Tâches', 'Score']],
       body: reports.map((r) => [
         r.full_name,
         r.department || '—',
@@ -458,9 +494,8 @@ export default function Reports() {
         r.overtime_bonus > 0 ? `+${fmtNum(r.overtime_bonus)}` : '—',
         `-${fmtNum(r.deduction)}`,
         fmtNum(r.net_salary),
-        r.tasks_assigned,
-        r.tasks_completed,
-        r.tasks_overdue > 0 ? r.tasks_overdue : '—',
+        `${r.tasks_completed}/${r.tasks_assigned}${r.tasks_overdue > 0 ? ` (${r.tasks_overdue}!)` : ''}`,
+        r.tasks_assigned > 0 ? `${r.task_score}%` : '—',
       ]),
       styles: { fontSize: 7, cellPadding: 2 },
       headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: 'bold', fontSize: 7 },
@@ -473,7 +508,6 @@ export default function Reports() {
         12: { halign: 'right', fontStyle: 'bold' },
         13: { halign: 'center' },
         14: { halign: 'center' },
-        15: { halign: 'center' },
       },
       didDrawPage: (data) => {
         const pageCount = doc.getNumberOfPages();
@@ -612,6 +646,13 @@ export default function Reports() {
                   <p className="text-xs text-muted-foreground mt-1">
                     terminées · {reports.reduce((s, r) => s + r.tasks_overdue, 0)} en retard
                   </p>
+                  {reports.length > 0 && (
+                    <p className="text-xs mt-1">
+                      <span className="text-green-600 font-medium">
+                        Score moyen : {Math.round(reports.filter(r => r.tasks_assigned > 0).reduce((s, r) => s + r.task_score, 0) / Math.max(1, reports.filter(r => r.tasks_assigned > 0).length))}%
+                      </span>
+                    </p>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -687,10 +728,17 @@ export default function Reports() {
                         </td>
                         <td className="px-4 py-3 text-sm text-right font-bold">{r.net_salary.toLocaleString()}</td>
                         <td className="px-4 py-3 text-sm text-center">
-                          <span className="badge-status bg-indigo-500/10 text-indigo-600">{r.tasks_completed}/{r.tasks_assigned}</span>
-                          {r.tasks_overdue > 0 && (
-                            <span className="badge-status bg-destructive/10 text-destructive ml-1">{r.tasks_overdue}!</span>
-                          )}
+                          <div className="flex flex-col items-center gap-0.5">
+                            <span className="badge-status bg-indigo-500/10 text-indigo-600">{r.tasks_completed}/{r.tasks_assigned}</span>
+                            {r.tasks_overdue > 0 && (
+                              <span className="badge-status bg-destructive/10 text-destructive text-[10px]">{r.tasks_overdue} en retard</span>
+                            )}
+                            {r.tasks_assigned > 0 && (
+                              <span className={`text-[10px] font-semibold ${r.task_score >= 75 ? 'text-green-600' : r.task_score >= 50 ? 'text-orange-600' : 'text-red-600'}`}>
+                                Score: {r.task_score}%
+                              </span>
+                            )}
+                          </div>
                         </td>
                         {isAdmin && (
                           <td className="px-4 py-3 text-center">

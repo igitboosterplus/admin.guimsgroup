@@ -44,6 +44,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+
 import {
   ClipboardList,
   Plus,
@@ -74,6 +75,8 @@ import {
   Zap,
   Hash,
   Repeat,
+  Copy,
+  BarChart3,
 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
@@ -236,6 +239,36 @@ function deadlineLabel(dueDate: string | null, status: string): { text: string; 
   return { text: `Dans ${diffDays}j`, className: 'text-muted-foreground' };
 }
 
+/** Compute next due date for a recurring task based on recurrence (daily/weekly/monthly) */
+function computeNextRecurrence(lastDate: string, recurrence: string): string | null {
+  const d = new Date(lastDate);
+  if (isNaN(d.getTime())) return null;
+  switch (recurrence) {
+    case 'daily':
+      d.setDate(d.getDate() + 1);
+      // Skip Sunday
+      if (d.getDay() === 0) d.setDate(d.getDate() + 1);
+      break;
+    case 'weekly':
+      d.setDate(d.getDate() + 7);
+      break;
+    case 'monthly':
+      d.setMonth(d.getMonth() + 1);
+      break;
+    default:
+      return null;
+  }
+  return d.toISOString().split('T')[0];
+}
+
+/** Compute employee workload info */
+function getWorkloadLevel(activeTasks: number): { label: string; color: string; level: 'low' | 'medium' | 'high' | 'overloaded' } {
+  if (activeTasks >= 8) return { label: 'Surchargé', color: 'text-red-600', level: 'overloaded' };
+  if (activeTasks >= 5) return { label: 'Chargé', color: 'text-orange-600', level: 'high' };
+  if (activeTasks >= 2) return { label: 'Normal', color: 'text-green-600', level: 'medium' };
+  return { label: 'Léger', color: 'text-blue-600', level: 'low' };
+}
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
@@ -346,10 +379,61 @@ export default function Tasks() {
       const { data: tmplData } = await supabase.from('task_templates').select('*').eq('is_active', true).order('position');
       setTemplates(tmplData || []);
 
-      // Check overdue tasks
       const today = new Date().toISOString().split('T')[0];
+      const allTasks = taskData || [];
 
-      const enriched: Task[] = (taskData || []).map((t) => {
+      /* ---- Auto-overdue: persist overdue status in DB ---- */
+      const newlyOverdue = allTasks.filter(
+        (t) => t.due_date && t.due_date < today && t.status !== 'completed' && t.status !== 'overdue'
+      );
+      if (newlyOverdue.length > 0) {
+        await supabase
+          .from('tasks')
+          .update({ status: 'overdue', updated_at: new Date().toISOString() })
+          .in('id', newlyOverdue.map((t) => t.id));
+        // Update local data
+        newlyOverdue.forEach((t) => { t.status = 'overdue'; });
+        // Notify
+        toast({
+          title: `⚠️ ${newlyOverdue.length} tâche(s) en retard`,
+          description: newlyOverdue.map((t) => t.title).slice(0, 3).join(', ') + (newlyOverdue.length > 3 ? '...' : ''),
+          variant: 'destructive',
+        });
+      }
+
+      /* ---- Auto-recurring: spawn new instances if needed ---- */
+      if (isAdmin) {
+        const recurring = allTasks.filter((t) => t.is_recurring && t.recurrence && (t.status === 'completed' || t.status === 'overdue'));
+        for (const task of recurring) {
+          const lastDate = task.completed_at || task.due_date || task.created_at;
+          const nextDue = computeNextRecurrence(lastDate, task.recurrence!);
+          if (!nextDue || nextDue > today) continue;
+          // Check if an instance already exists for this period
+          const existing = allTasks.find(
+            (t) => t.title === task.title && t.assigned_to === task.assigned_to && t.due_date === nextDue && t.id !== task.id
+          );
+          if (existing) continue;
+          const { data: newTask } = await supabase.from('tasks').insert({
+            title: task.title,
+            description: task.description,
+            assigned_to: task.assigned_to,
+            assigned_by: task.assigned_by,
+            priority: task.priority,
+            due_date: nextDue,
+            category: task.category,
+            account_id: task.account_id,
+            daily_target: task.daily_target,
+            daily_achieved: 0,
+            is_recurring: true,
+            recurrence: task.recurrence,
+            status: 'pending',
+            progress: 0,
+          }).select().single();
+          if (newTask) allTasks.unshift(newTask);
+        }
+      }
+
+      const enriched: Task[] = allTasks.map((t) => {
         let status = t.status as Task['status'];
         if (t.due_date && t.due_date < today && status !== 'completed') {
           status = 'overdue';
@@ -439,7 +523,34 @@ export default function Tasks() {
       .update({ is_done: !item.is_done })
       .eq('id', item.id);
     if (!error) {
-      setChecklist((prev) => prev.map((c) => c.id === item.id ? { ...c, is_done: !c.is_done } : c));
+      const updated = checklist.map((c) => c.id === item.id ? { ...c, is_done: !c.is_done } : c);
+      setChecklist(updated);
+
+      // Auto-compute progress from checklist completion
+      if (detailTarget && updated.length > 0) {
+        const done = updated.filter((c) => c.is_done).length;
+        const total = updated.length;
+        const newProgress = Math.round((done / total) * 100);
+        const isComplete = done === total;
+        const taskUpdates: Record<string, unknown> = {
+          progress: newProgress,
+          updated_at: new Date().toISOString(),
+        };
+        if (isComplete) {
+          taskUpdates.status = 'completed';
+          taskUpdates.completed_at = new Date().toISOString();
+        } else if (newProgress > 0 && detailTarget.status === 'pending') {
+          taskUpdates.status = 'in_progress';
+          if (!detailTarget.started_at) taskUpdates.started_at = new Date().toISOString();
+        }
+        await supabase.from('tasks').update(taskUpdates).eq('id', detailTarget.id);
+        // Update local state
+        setDetailTarget({ ...detailTarget, progress: newProgress, status: isComplete ? 'completed' : (newProgress > 0 && detailTarget.status === 'pending' ? 'in_progress' : detailTarget.status) });
+        if (isComplete) {
+          toast({ title: '✅ Tâche terminée automatiquement !', description: detailTarget.title });
+        }
+        fetchData();
+      }
     }
   };
 
@@ -783,6 +894,54 @@ export default function Tasks() {
   const overdueTasks = tasks.filter((t) => t.status === 'overdue').length;
   const avgProgress = tasks.length > 0 ? Math.round(tasks.reduce((s, t) => s + t.progress, 0) / tasks.length) : 0;
 
+  // Workload per employee (active tasks count)
+  const employeeWorkload: Record<string, number> = {};
+  tasks.forEach((t) => {
+    if (t.status === 'pending' || t.status === 'in_progress' || t.status === 'overdue') {
+      employeeWorkload[t.assigned_to] = (employeeWorkload[t.assigned_to] || 0) + 1;
+    }
+  });
+
+  // Employee performance: completion rate
+  const employeePerformance: Record<string, { assigned: number; completed: number; overdue: number; rate: number }> = {};
+  tasks.forEach((t) => {
+    if (!employeePerformance[t.assigned_to]) {
+      employeePerformance[t.assigned_to] = { assigned: 0, completed: 0, overdue: 0, rate: 0 };
+    }
+    employeePerformance[t.assigned_to].assigned++;
+    if (t.status === 'completed') employeePerformance[t.assigned_to].completed++;
+    if (t.status === 'overdue') employeePerformance[t.assigned_to].overdue++;
+  });
+  Object.values(employeePerformance).forEach((p) => {
+    p.rate = p.assigned > 0 ? Math.round((p.completed / p.assigned) * 100) : 0;
+  });
+
+  // Task duplicate handler (admin only)
+  const handleDuplicateTask = async (task: Task) => {
+    const { error } = await supabase.from('tasks').insert({
+      title: `${task.title} (copie)`,
+      description: task.description,
+      assigned_to: task.assigned_to,
+      assigned_by: user!.id,
+      priority: task.priority,
+      due_date: task.due_date,
+      category: task.category,
+      account_id: task.account_id,
+      daily_target: task.daily_target,
+      daily_achieved: 0,
+      is_recurring: task.is_recurring,
+      recurrence: task.recurrence,
+      status: 'pending',
+      progress: 0,
+    });
+    if (error) {
+      toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: '✅ Mission dupliquée', description: task.title });
+      fetchData();
+    }
+  };
+
   // Group tasks by status for board view
   const boardColumns: { key: Task['status']; label: string; color: string; tasks: Task[] }[] = [
     { key: 'pending', label: 'En attente', color: 'border-t-muted-foreground', tasks: filtered.filter((t) => t.status === 'pending') },
@@ -1032,6 +1191,69 @@ export default function Tasks() {
         {/* ===== MISSIONS CONTENT (shared between admin missions tab and employee view) ===== */}
         {(mainTab === 'missions' || !isAdmin) && (
           <>
+            {/* Admin performance dashboard */}
+            {isAdmin && (
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
+                <Card className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-primary/10 rounded-lg">
+                      <ClipboardList className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Total missions</p>
+                      <p className="text-xl font-bold font-display">{totalTasks}</p>
+                    </div>
+                  </div>
+                </Card>
+                <Card className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-green-500/10 rounded-lg">
+                      <CheckCircle className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Terminées</p>
+                      <p className="text-xl font-bold font-display text-green-600">{completedTasks}</p>
+                    </div>
+                  </div>
+                </Card>
+                <Card className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-blue-500/10 rounded-lg">
+                      <TrendingUp className="h-5 w-5 text-blue-600" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">En cours</p>
+                      <p className="text-xl font-bold font-display text-blue-600">{inProgressTasks}</p>
+                    </div>
+                  </div>
+                </Card>
+                <Card className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-destructive/10 rounded-lg">
+                      <AlertTriangle className="h-5 w-5 text-destructive" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">En retard</p>
+                      <p className="text-xl font-bold font-display text-destructive">{overdueTasks}</p>
+                    </div>
+                  </div>
+                </Card>
+                <Card className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-indigo-500/10 rounded-lg">
+                      <BarChart3 className="h-5 w-5 text-indigo-600" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Complétion</p>
+                      <p className="text-xl font-bold font-display text-indigo-600">
+                        {totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0}%
+                      </p>
+                    </div>
+                  </div>
+                </Card>
+              </div>
+            )}
+
             {/* Employee personal stats */}
             {!isAdmin && (
               <div className="space-y-4">
@@ -1437,6 +1659,14 @@ export default function Tasks() {
                                 {task.department && (
                                   <p className="text-xs text-muted-foreground">{task.department}</p>
                                 )}
+                                {(() => {
+                                  const wl = getWorkloadLevel(employeeWorkload[task.assigned_to] || 0);
+                                  return wl.level === 'high' || wl.level === 'overloaded' ? (
+                                    <span className={`text-[10px] font-medium ${wl.color}`}>
+                                      ⚡ {wl.label} ({employeeWorkload[task.assigned_to]} actives)
+                                    </span>
+                                  ) : null;
+                                })()}
                               </TableCell>
                             )}
                             <TableCell>
@@ -1520,6 +1750,9 @@ export default function Tasks() {
                                 )}
                                 {isAdmin && (
                                   <>
+                                    <Button size="sm" variant="ghost" title="Dupliquer" className="text-indigo-600" onClick={() => handleDuplicateTask(task)}>
+                                      <Copy className="h-4 w-4" />
+                                    </Button>
                                     <Button size="sm" variant="ghost" title="Modifier" onClick={() => openEdit(task)}>
                                       <Pencil className="h-4 w-4" />
                                     </Button>
@@ -1585,16 +1818,30 @@ export default function Tasks() {
                     <SelectValue placeholder="Choisir un employé…" />
                   </SelectTrigger>
                   <SelectContent>
-                    {employees.map((emp) => (
-                      <SelectItem key={emp.user_id} value={emp.user_id}>
-                        <span>{emp.full_name}</span>
-                        {emp.position && (
-                          <span className="text-muted-foreground text-xs ml-1">({emp.position})</span>
-                        )}
-                      </SelectItem>
-                    ))}
+                    {employees.map((emp) => {
+                      const wl = getWorkloadLevel(employeeWorkload[emp.user_id] || 0);
+                      return (
+                        <SelectItem key={emp.user_id} value={emp.user_id}>
+                          <span>{emp.full_name}</span>
+                          {emp.position && (
+                            <span className="text-muted-foreground text-xs ml-1">({emp.position})</span>
+                          )}
+                          {(wl.level === 'high' || wl.level === 'overloaded') && (
+                            <span className={`text-xs ml-1 ${wl.color}`}>⚡{employeeWorkload[emp.user_id]}</span>
+                          )}
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
+                {form.assigned_to && (() => {
+                  const wl = getWorkloadLevel(employeeWorkload[form.assigned_to] || 0);
+                  return (wl.level === 'high' || wl.level === 'overloaded') ? (
+                    <p className={`text-xs mt-1 ${wl.color}`}>
+                      ⚠️ {wl.label} — {employeeWorkload[form.assigned_to]} tâches actives
+                    </p>
+                  ) : null;
+                })()}
               </div>
               <div>
                 <Label>Priorité</Label>
