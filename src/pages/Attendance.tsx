@@ -540,7 +540,7 @@ export default function Attendance() {
               {role !== 'bureau' && (
                 <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-2">📊 Statut de localisation (informatif)</p>
               )}
-              {/* GPS status (primary) */}
+              {/* GPS status */}
               {officeLat && officeLng && (
                 <div className="flex items-center gap-3">
                   {gpsAllowed ? (
@@ -568,29 +568,48 @@ export default function Attendance() {
                   )}
                 </div>
               )}
-              {/* IP status (fallback or additional info for admin) */}
-              {((!officeLat || !officeLng) || role !== 'bureau') && currentIp && (
-                <div className="flex items-center gap-3">
-                  {ipAllowed ? (
-                    <>
-                      <Wifi className="h-5 w-5 text-success" />
-                      <div>
-                        <p className="text-sm font-medium text-success">Connecté au WiFi du bureau</p>
-                        <p className="text-xs text-muted-foreground">IP: {currentIp}</p>
-                      </div>
-                    </>
+              {/* IP status */}
+              <div className="flex items-center gap-3">
+                {currentIp ? (
+                  officeIps.length > 0 && !(officeIps.length === 1 && officeIps[0] === '0.0.0.0') ? (
+                    ipAllowed ? (
+                      <>
+                        <Wifi className="h-5 w-5 text-success" />
+                        <div>
+                          <p className="text-sm font-medium text-success">Connecté au WiFi du bureau</p>
+                          <p className="text-xs text-muted-foreground">IP: {currentIp}</p>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <WifiOff className="h-5 w-5 text-destructive" />
+                        <div>
+                          <p className="text-sm font-medium text-destructive">WiFi du bureau non détecté</p>
+                          <p className="text-xs text-muted-foreground">
+                            Votre IP ({currentIp}) ne correspond pas à l'IP du bureau ({officeIps.filter(ip => ip && ip !== '0.0.0.0').join(', ')})
+                          </p>
+                        </div>
+                      </>
+                    )
                   ) : (
                     <>
-                      <WifiOff className="h-5 w-5 text-destructive" />
+                      <Wifi className="h-5 w-5 text-muted-foreground" />
                       <div>
-                        <p className="text-sm font-medium text-destructive">WiFi du bureau non détecté</p>
-                        <p className="text-xs text-muted-foreground">
-                          Votre IP ({currentIp}) ne correspond pas à l'IP du bureau. Pointage impossible.
-                        </p>
+                        <p className="text-sm font-medium">IP actuelle: {currentIp}</p>
+                        <p className="text-xs text-muted-foreground">Vérification IP désactivée (0.0.0.0)</p>
                       </div>
                     </>
-                  )}
-                </div>
+                  )
+                ) : (
+                  <>
+                    <Wifi className="h-5 w-5 text-muted-foreground animate-pulse" />
+                    <p className="text-sm text-muted-foreground">Récupération de l'IP en cours...</p>
+                  </>
+                )}
+              </div>
+              {/* GPS not configured notice */}
+              {!officeLat && !officeLng && (
+                <p className="text-xs text-muted-foreground">📍 GPS non configuré — configurez les coordonnées dans Paramètres pour activer la vérification GPS.</p>
               )}
             </CardContent>
           </Card>
