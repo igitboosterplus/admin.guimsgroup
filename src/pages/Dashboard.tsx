@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DashboardLayout from '@/components/DashboardLayout';
 import { useAuth } from '@/hooks/useAuth';
@@ -49,24 +49,25 @@ export default function Dashboard() {
   const [taskStats, setTaskStats] = useState({ total: 0, completed: 0, inProgress: 0, overdue: 0 });
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const today = new Date().toISOString().split('T')[0];
+  // ── Fetch functions (extracted for reuse by realtime) ──
 
-        if (role === 'admin' || role === 'manager') {
-          const tomorrow = new Date();
-          tomorrow.setDate(tomorrow.getDate() + 1);
-          const tomorrowStr = tomorrow.toISOString().split('T')[0];
+  const fetchStats = useCallback(async () => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
 
-          const [employeesRes, attendanceRes, profilesRes] = await Promise.all([
-            supabase.from('profiles').select('id', { count: 'exact' }).eq('is_approved', true).eq('archived', false).eq('is_paused', false),
-            supabase.from('attendance').select('*').gte('clock_in', today).lt('clock_in', tomorrowStr),
-            supabase.from('profiles').select('department').eq('is_approved', true).eq('archived', false).eq('is_paused', false),
-          ]);
+      if (role === 'admin' || role === 'manager') {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
-          if (employeesRes.error) throw employeesRes.error;
-          if (attendanceRes.error) throw attendanceRes.error;
+        const [employeesRes, attendanceRes, profilesRes] = await Promise.all([
+          supabase.from('profiles').select('id', { count: 'exact' }).eq('is_approved', true).eq('archived', false).eq('is_paused', false),
+          supabase.from('attendance').select('*').gte('clock_in', today).lt('clock_in', tomorrowStr),
+          supabase.from('profiles').select('department').eq('is_approved', true).eq('archived', false).eq('is_paused', false),
+        ]);
+
+        if (employeesRes.error) throw employeesRes.error;
+        if (attendanceRes.error) throw attendanceRes.error;
 
         const attendance = attendanceRes.data || [];
         const totalEmployees = employeesRes.count || 0;
@@ -77,7 +78,6 @@ export default function Dashboard() {
           absentToday: Math.max(0, totalEmployees - attendance.length),
         });
 
-        // Department breakdown
         const deptMap: Record<string, number> = {};
         (profilesRes.data || []).forEach((p) => {
           const dept = p.department || 'Non assigné';
@@ -85,7 +85,6 @@ export default function Dashboard() {
         });
         setDeptData(Object.entries(deptMap).map(([name, value]) => ({ name, value })));
 
-        // Weekly attendance (last 7 days) — single query instead of 7
         const dayNames = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
         const weekStart = new Date();
         weekStart.setDate(weekStart.getDate() - 6);
@@ -113,66 +112,87 @@ export default function Dashboard() {
         }
         setWeeklyData(days);
       }
-      } catch (err: any) {
-        toast({ title: 'Erreur chargement', description: err.message, variant: 'destructive' });
-      }
-    };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Erreur inconnue';
+      toast({ title: 'Erreur chargement', description: msg, variant: 'destructive' });
+    }
+  }, [role, toast]);
 
-    // Personal stats for all users
-    const fetchMyStats = async () => {
-      if (!user) return;
-      const today = new Date().toISOString().split('T')[0];
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const tomorrowStr = tomorrow.toISOString().split('T')[0];
-      const monthStart = today.substring(0, 7) + '-01';
+  const fetchMyStats = useCallback(async () => {
+    if (!user) return;
+    const today = new Date().toISOString().split('T')[0];
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+    const monthStart = today.substring(0, 7) + '-01';
 
-      const [todayRes, monthRes] = await Promise.all([
-        supabase.from('attendance').select('status').eq('user_id', user.id).gte('clock_in', today).lt('clock_in', tomorrowStr).limit(1),
-        supabase.from('attendance').select('status, clock_in').eq('user_id', user.id).gte('clock_in', monthStart),
-      ]);
+    const [todayRes, monthRes] = await Promise.all([
+      supabase.from('attendance').select('status').eq('user_id', user.id).gte('clock_in', today).lt('clock_in', tomorrowStr).limit(1),
+      supabase.from('attendance').select('status, clock_in').eq('user_id', user.id).gte('clock_in', monthStart),
+    ]);
 
-      const todayRecord = todayRes.data?.[0];
-      const monthRecords = monthRes.data || [];
+    const todayRecord = todayRes.data?.[0];
+    const monthRecords = monthRes.data || [];
 
-      // Calculate working days this month up to today
-      const now = new Date();
-      const monthStartDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      let workingDays = 0;
-      const d = new Date(monthStartDate);
-      while (d <= now && d.getMonth() === now.getMonth()) {
-        if (d.getDay() !== 0) workingDays++; // exclude Sunday
-        d.setDate(d.getDate() + 1);
-      }
-      const uniqueDays = new Set(monthRecords.map((r: any) => r.clock_in ? new Date(r.clock_in).toISOString().split('T')[0] : '').filter(Boolean));
-      const absents = Math.max(0, workingDays - uniqueDays.size);
+    const now = new Date();
+    const monthStartDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    let workingDays = 0;
+    const d = new Date(monthStartDate);
+    while (d <= now && d.getMonth() === now.getMonth()) {
+      if (d.getDay() !== 0) workingDays++;
+      d.setDate(d.getDate() + 1);
+    }
+    const uniqueDays = new Set(monthRecords.map((r: any) => r.clock_in ? new Date(r.clock_in).toISOString().split('T')[0] : '').filter(Boolean));
+    const absents = Math.max(0, workingDays - uniqueDays.size);
 
-      setMyStats({
-        todayStatus: todayRecord?.status || 'absent',
-        monthPresents: monthRecords.filter((r) => r.status === 'present').length,
-        monthLates: monthRecords.filter((r) => r.status === 'late').length,
-        monthAbsents: absents,
-      });
-    };
+    setMyStats({
+      todayStatus: todayRecord?.status || 'absent',
+      monthPresents: monthRecords.filter((r) => r.status === 'present').length,
+      monthLates: monthRecords.filter((r) => r.status === 'late').length,
+      monthAbsents: absents,
+    });
+  }, [user]);
 
-    // Task stats
-    const fetchTaskStats = async () => {
-      if (!user) return;
-      const isAdminOrManager = role === 'admin' || role === 'manager';
-      let query = supabase.from('tasks').select('status');
-      if (!isAdminOrManager) query = query.eq('assigned_to', user.id);
-      const { data } = await query;
-      const tasks = data || [];
-      setTaskStats({
-        total: tasks.length,
-        completed: tasks.filter((t) => t.status === 'completed').length,
-        inProgress: tasks.filter((t) => t.status === 'in_progress').length,
-        overdue: tasks.filter((t) => t.status === 'overdue').length,
-      });
-    };
+  const fetchTaskStats = useCallback(async () => {
+    if (!user) return;
+    const isAdminOrManager = role === 'admin' || role === 'manager';
+    let query = supabase.from('tasks').select('status');
+    if (!isAdminOrManager) query = query.eq('assigned_to', user.id);
+    const { data } = await query;
+    const tasks = data || [];
+    setTaskStats({
+      total: tasks.length,
+      completed: tasks.filter((t) => t.status === 'completed').length,
+      inProgress: tasks.filter((t) => t.status === 'in_progress').length,
+      overdue: tasks.filter((t) => t.status === 'overdue').length,
+    });
+  }, [user, role]);
 
+  // ── Initial fetch ──
+  useEffect(() => {
     Promise.all([fetchStats(), fetchMyStats(), fetchTaskStats()]).finally(() => setLoading(false));
-  }, [role, user]);
+  }, [fetchStats, fetchMyStats, fetchTaskStats]);
+
+  // ── Realtime subscriptions ──
+  useEffect(() => {
+    const channel = supabase
+      .channel('dashboard-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, () => {
+        fetchStats();
+        fetchMyStats();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => {
+        fetchTaskStats();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
+        fetchStats();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchStats, fetchMyStats, fetchTaskStats]);
 
   const statCards = [
     { label: 'Total Employés', value: stats.totalEmployees, icon: Users, color: 'text-primary' },
