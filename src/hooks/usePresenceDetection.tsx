@@ -113,37 +113,36 @@ export function usePresenceDetection() {
     let isOnSite = false;
     let currentIp = '';
 
-    // Primary: GPS check
-    if (hasGps) {
-      const pos = await getGpsPosition();
-      if (pos) {
-        const dist = haversineDistance(pos.lat, pos.lng, officeLat.current!, officeLng.current!);
-        isOnSite = dist <= officeRadius.current;
-      }
-    }
-
-    // Fallback: IP check (only if GPS not configured or GPS said off-site)
-    if (!isOnSite && hasIps) {
+    // Primary: IP check
+    if (hasIps) {
       try {
         const res = await fetch('https://api.ipify.org?format=json');
         const data = await res.json();
         currentIp = data.ip;
       } catch {
-        // network error → skip this cycle if no GPS match
-        if (!hasGps) return;
+        // network error → fall through to GPS
       }
 
       if (currentIp) {
         isOnSite = officeIps.current.some(ip => {
           if (!ip || ip === '0.0.0.0') return false;
-          // Compare only the first 3 octets (X.X.X.*) — the 4th changes frequently on WiFi
+          // Full 4-octet comparison with wildcard support
           const ipParts = ip.split('.');
           const currentParts = currentIp.split('.');
           if (ipParts.length === 4 && currentParts.length === 4) {
-            return ipParts.slice(0, 3).every((seg, i) => seg === '*' || seg === currentParts[i]);
+            return ipParts.every((seg, i) => seg === '*' || seg === currentParts[i]);
           }
           return currentIp === ip;
         });
+      }
+    }
+
+    // Fallback: GPS check (only if IP didn't match)
+    if (!isOnSite && hasGps) {
+      const pos = await getGpsPosition();
+      if (pos) {
+        const dist = haversineDistance(pos.lat, pos.lng, officeLat.current!, officeLng.current!);
+        isOnSite = dist <= officeRadius.current;
       }
     }
 

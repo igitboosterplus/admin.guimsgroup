@@ -25,7 +25,7 @@ export default function Settings() {
   const [form, setForm] = useState({
     work_start_time: '08:00',
     work_end_time: '17:00',
-    office_ips: ['0.0.0.0', '', '', ''],
+    office_ips: ['0.0.0.0', '', '', '', '', '', '', '', '', ''],
     office_lat: '',
     office_lng: '',
     office_radius: '100',
@@ -56,7 +56,9 @@ export default function Settings() {
           office_ips: (() => {
             const raw = String(map.office_ip || '0.0.0.0').replace(/"/g, '');
             const parts = raw.split(',').map(s => s.trim());
-            return [parts[0] || '0.0.0.0', parts[1] || '', parts[2] || '', parts[3] || ''];
+            const arr: string[] = [];
+            for (let i = 0; i < 10; i++) arr.push(parts[i] || (i === 0 ? '0.0.0.0' : ''));
+            return arr;
           })(),
           office_lat: String(map.office_lat || '').replace(/"/g, ''),
           office_lng: String(map.office_lng || '').replace(/"/g, ''),
@@ -312,7 +314,7 @@ export default function Settings() {
                   onChange={(e) => {
                     const updated = [...form.office_ips];
                     updated[idx] = e.target.value;
-                    setForm({ ...form, office_ips: updated as [string, string, string, string] });
+                    setForm({ ...form, office_ips: updated });
                   }}
                   placeholder={idx === 0 ? 'Ex: 196.168.1.* ou 0.0.0.0' : 'Laisser vide si non utilisé'}
                   disabled={readOnly}
@@ -320,7 +322,7 @@ export default function Settings() {
               </div>
             ))}
             <p className="text-xs text-muted-foreground">
-              Utilisé uniquement si le GPS n'est pas disponible. Mettre 0.0.0.0 sur l'IP principale pour désactiver.
+              Utilisé comme vérification principale. Le GPS est utilisé en secours si l'IP ne correspond pas. Mettre 0.0.0.0 sur l'IP principale pour désactiver.
             </p>
           </CardContent>
         </Card>

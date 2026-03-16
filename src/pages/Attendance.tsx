@@ -266,7 +266,7 @@ export default function Attendance() {
     return () => clearInterval(interval);
   }, [role, officeLat, officeLng, officeRadius]);
 
-  // IP check (fallback when GPS is not configured)
+  // IP check (primary method)
   useEffect(() => {
     if (currentIp && officeIps.length) {
       if (officeIps.length === 1 && officeIps[0] === '0.0.0.0') {
@@ -274,11 +274,11 @@ export default function Attendance() {
       } else {
         const match = officeIps.some(ip => {
           if (!ip || ip === '0.0.0.0') return false;
-          // Compare only the first 3 octets (X.X.X.*) — the 4th changes frequently on WiFi
+          // Full 4-octet comparison with wildcard support
           const ipParts = ip.split('.');
           const currentParts = currentIp.split('.');
           if (ipParts.length === 4 && currentParts.length === 4) {
-            return ipParts.slice(0, 3).every((seg, i) => seg === '*' || seg === currentParts[i]);
+            return ipParts.every((seg, i) => seg === '*' || seg === currentParts[i]);
           }
           return currentIp === ip;
         });
@@ -289,13 +289,15 @@ export default function Attendance() {
     }
   }, [currentIp, officeIps, role]);
 
-  // Combined permission: GPS (primary) OR IP (fallback)
+  // Combined permission: IP first → GPS fallback
   const locationAllowed = (() => {
     if (role !== 'bureau') return true;
-    // If GPS is configured, use GPS result
-    if (officeLat && officeLng) return gpsAllowed === true;
-    // Otherwise fall back to IP
-    return ipAllowed === true;
+    // 1. If IP matches → allowed
+    if (ipAllowed === true) return true;
+    // 2. If IP didn't match but GPS is configured and matches → allowed
+    if (officeLat && officeLng && gpsAllowed === true) return true;
+    // 3. Neither matched → denied
+    return false;
   })();
 
   const handleClockIn = async () => {
