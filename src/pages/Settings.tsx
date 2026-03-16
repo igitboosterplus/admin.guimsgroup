@@ -236,6 +236,7 @@ export default function Settings() {
                 type="time"
                 value={form.work_start_time}
                 onChange={(e) => setForm({ ...form, work_start_time: e.target.value })}
+                disabled={readOnly}
               />
             </div>
             <div className="space-y-2">
@@ -244,6 +245,7 @@ export default function Settings() {
                 type="time"
                 value={form.work_end_time}
                 onChange={(e) => setForm({ ...form, work_end_time: e.target.value })}
+                disabled={readOnly}
               />
             </div>
           </CardContent>
@@ -264,6 +266,7 @@ export default function Settings() {
                   value={form.office_lat}
                   onChange={(e) => setForm({ ...form, office_lat: e.target.value })}
                   placeholder="Ex: 3.8480"
+                  disabled={readOnly}
                 />
               </div>
               <div className="space-y-1">
@@ -272,6 +275,7 @@ export default function Settings() {
                   value={form.office_lng}
                   onChange={(e) => setForm({ ...form, office_lng: e.target.value })}
                   placeholder="Ex: 11.5021"
+                  disabled={readOnly}
                 />
               </div>
               <div className="space-y-1">
@@ -283,6 +287,7 @@ export default function Settings() {
                   value={form.office_radius}
                   onChange={(e) => setForm({ ...form, office_radius: e.target.value })}
                   placeholder="100"
+                  disabled={readOnly}
                 />
               </div>
             </div>
@@ -310,6 +315,7 @@ export default function Settings() {
                     setForm({ ...form, office_ips: updated as [string, string, string, string] });
                   }}
                   placeholder={idx === 0 ? 'Ex: 196.168.1.* ou 0.0.0.0' : 'Laisser vide si non utilisé'}
+                  disabled={readOnly}
                 />
               </div>
             ))}
@@ -331,6 +337,7 @@ export default function Settings() {
                 <Select
                   value={form.late_deduction_type}
                   onValueChange={(v) => setForm({ ...form, late_deduction_type: v })}
+                  disabled={readOnly}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -345,6 +352,7 @@ export default function Settings() {
                   value={form.late_deduction_amount}
                   onChange={(e) => setForm({ ...form, late_deduction_amount: Number(e.target.value) })}
                   placeholder={form.late_deduction_type === 'fixed' ? 'FCFA' : '%'}
+                  disabled={readOnly}
                 />
               </div>
             </div>
@@ -354,6 +362,7 @@ export default function Settings() {
                 <Select
                   value={form.absence_deduction_type}
                   onValueChange={(v) => setForm({ ...form, absence_deduction_type: v })}
+                  disabled={readOnly}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -368,6 +377,7 @@ export default function Settings() {
                   value={form.absence_deduction_amount}
                   onChange={(e) => setForm({ ...form, absence_deduction_amount: Number(e.target.value) })}
                   placeholder={form.absence_deduction_type === 'fixed' ? 'FCFA' : '%'}
+                  disabled={readOnly}
                 />
               </div>
             </div>
@@ -385,7 +395,7 @@ export default function Settings() {
           <CardContent className="space-y-4">
             {/* Add new position */}
             <div className="flex flex-col sm:flex-row gap-2">
-              <Select value={newPosDept} onValueChange={setNewPosDept}>
+              <Select value={newPosDept} onValueChange={setNewPosDept} disabled={readOnly}>
                 <SelectTrigger className="sm:w-48">
                   <SelectValue placeholder="Département..." />
                 </SelectTrigger>
@@ -401,8 +411,9 @@ export default function Settings() {
                 onChange={(e) => setNewPosName(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleAddPosition(); }}
                 className="flex-1"
+                disabled={readOnly}
               />
-              <Button onClick={handleAddPosition} disabled={savingPositions || !newPosDept || !newPosName.trim()}>
+              <Button onClick={handleAddPosition} disabled={readOnly || savingPositions || !newPosDept || !newPosName.trim()}>
                 {savingPositions ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
               </Button>
             </div>
@@ -455,6 +466,7 @@ export default function Settings() {
               <Label>Fournisseur IA</Label>
               <Select
                 value={aiForm.ai_provider}
+                disabled={readOnly}
                 onValueChange={(v) => {
                   const defaults: Record<string, { model: string; url: string }> = {
                     openai: { model: 'gpt-4o-mini', url: 'https://api.openai.com/v1' },
@@ -484,6 +496,7 @@ export default function Settings() {
                 value={aiForm.ai_api_key}
                 onChange={(e) => setAiForm({ ...aiForm, ai_api_key: e.target.value })}
                 placeholder="sk-..."
+                disabled={readOnly}
               />
               <p className="text-xs text-muted-foreground">
                 Votre clé API ne sera jamais partagée. Elle est stockée de manière sécurisée.
@@ -496,6 +509,7 @@ export default function Settings() {
                   value={aiForm.ai_model}
                   onChange={(e) => setAiForm({ ...aiForm, ai_model: e.target.value })}
                   placeholder="gpt-4o-mini"
+                  disabled={readOnly}
                 />
               </div>
               <div className="space-y-2">
@@ -504,6 +518,7 @@ export default function Settings() {
                   value={aiForm.ai_base_url}
                   onChange={(e) => setAiForm({ ...aiForm, ai_base_url: e.target.value })}
                   placeholder="https://api.openai.com/v1"
+                  disabled={readOnly}
                 />
               </div>
             </div>

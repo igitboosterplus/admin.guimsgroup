@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { Navigate } from 'react-router-dom';
 import DashboardLayout from '@/components/DashboardLayout';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -409,6 +410,10 @@ export default function Employees() {
         </div>
       </DashboardLayout>
     );
+  }
+
+  if (!can('employees.view')) {
+    return <Navigate to="/dashboard" replace />;
   }
 
   return (

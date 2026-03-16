@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import DashboardLayout from '@/components/DashboardLayout';
 import { useAuth } from '@/hooks/useAuth';
 import { usePermissions } from '@/hooks/usePermissions';
@@ -6,12 +6,15 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Clock, LogIn, LogOut, Wifi, WifiOff, Loader2, ChevronLeft, ChevronRight, AlertTriangle, Radio, MapPin } from 'lucide-react';
+import { Clock, LogIn, LogOut, Wifi, WifiOff, Loader2, ChevronLeft, ChevronRight, AlertTriangle, Radio, MapPin, Plus, Pencil, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 
 const PAGE_SIZE = 15;
 
@@ -23,6 +26,13 @@ interface AttendanceRecord {
   ip_address: string | null;
   user_id: string;
   full_name?: string;
+  added_by?: string | null;
+  notes?: string | null;
+}
+
+interface EmployeeOption {
+  user_id: string;
+  full_name: string;
 }
 
 export default function Attendance() {
@@ -46,13 +56,34 @@ export default function Attendance() {
   const [gpsDistance, setGpsDistance] = useState<number | null>(null);
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
+  // Fix dialog (clock-out correction)
   const [fixDialogOpen, setFixDialogOpen] = useState(false);
   const [fixRecord, setFixRecord] = useState<AttendanceRecord | null>(null);
   const [fixTime, setFixTime] = useState('');
   const [fixSubmitting, setFixSubmitting] = useState(false);
+  // Admin: manual attendance dialog
+  const [manualDialogOpen, setManualDialogOpen] = useState(false);
+  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  const [manualForm, setManualForm] = useState({ userId: '', date: '', clockIn: '08:00', clockOut: '', status: 'present', notes: '' });
+  const [manualSubmitting, setManualSubmitting] = useState(false);
+  // Admin: edit dialog
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editRecord, setEditRecord] = useState<AttendanceRecord | null>(null);
+  const [editForm, setEditForm] = useState({ clockIn: '', clockOut: '', status: 'present', notes: '' });
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  // Admin: delete confirmation
+  const [deleteRecord, setDeleteRecord] = useState<AttendanceRecord | null>(null);
 
   const isAdminOrManager = can('attendance.view_all');
   const canFix = can('attendance.fix');
+
+  // Load employees for admin manual attendance
+  useEffect(() => {
+    if (!isAdminOrManager) return;
+    supabase.from('profiles').select('user_id, full_name').eq('archived', false).eq('is_paused', false).order('full_name').then(({ data }) => {
+      if (data) setEmployees(data);
+    });
+  }, [isAdminOrManager]);
 
   useEffect(() => {
     const init = async () => {
@@ -138,46 +169,46 @@ export default function Attendance() {
   }, [user]);
 
   // Fetch history with pagination
-  useEffect(() => {
-    const fetchHistory = async () => {
-      if (!user) return;
+  const refreshHistory = useCallback(async () => {
+    if (!user) return;
 
-      const from = page * PAGE_SIZE;
-      const to = from + PAGE_SIZE - 1;
+    const from = page * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
 
-      if (isAdminOrManager) {
-        // Admin/Manager sees all employees' attendance
-        const { data, count } = await supabase
-          .from('attendance')
-          .select('*', { count: 'exact' })
-          .order('clock_in', { ascending: false })
-          .range(from, to);
+    if (isAdminOrManager) {
+      // Admin/Manager sees all employees' attendance
+      const { data, count } = await supabase
+        .from('attendance')
+        .select('*', { count: 'exact' })
+        .order('clock_in', { ascending: false })
+        .range(from, to);
 
-        if (data) {
-          // Enrich with employee names
-          const userIds = [...new Set(data.map((d) => d.user_id))];
-          const { data: profiles } = await supabase.from('profiles').select('user_id, full_name').in('user_id', userIds);
-          const nameMap: Record<string, string> = {};
-          profiles?.forEach((p) => { nameMap[p.user_id] = p.full_name; });
+      if (data) {
+        // Enrich with employee names
+        const userIds = [...new Set(data.map((d) => d.user_id))];
+        const { data: profiles } = await supabase.from('profiles').select('user_id, full_name').in('user_id', userIds);
+        const nameMap: Record<string, string> = {};
+        profiles?.forEach((p) => { nameMap[p.user_id] = p.full_name; });
 
-          setHistory(data.map((d) => ({ ...d, full_name: nameMap[d.user_id] || '—' })));
-        }
-        setTotalCount(count || 0);
-      } else {
-        const { data, count } = await supabase
-          .from('attendance')
-          .select('*', { count: 'exact' })
-          .eq('user_id', user.id)
-          .order('clock_in', { ascending: false })
-          .range(from, to);
-
-        if (data) setHistory(data);
-        setTotalCount(count || 0);
+        setHistory(data.map((d) => ({ ...d, full_name: nameMap[d.user_id] || '—' })));
       }
-    };
+      setTotalCount(count || 0);
+    } else {
+      const { data, count } = await supabase
+        .from('attendance')
+        .select('*', { count: 'exact' })
+        .eq('user_id', user.id)
+        .order('clock_in', { ascending: false })
+        .range(from, to);
 
-    fetchHistory();
-  }, [user, page, role, isAdminOrManager]);
+      if (data) setHistory(data);
+      setTotalCount(count || 0);
+    }
+  }, [user, page, isAdminOrManager]);
+
+  useEffect(() => {
+    refreshHistory();
+  }, [refreshHistory]);
 
   // Haversine formula to calculate distance between two GPS points in meters
   const haversineDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -369,13 +400,112 @@ export default function Attendance() {
     if (error) {
       toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
     } else {
-      setHistory((prev) =>
-        prev.map((r) => (r.id === fixRecord.id ? { ...r, clock_out: clockOutISO } : r))
-      );
+      await refreshHistory();
       toast({ title: '✅ Départ corrigé', description: `Heure de départ mise à ${fixTime}` });
       setFixDialogOpen(false);
     }
     setFixSubmitting(false);
+  };
+
+  // ─── Admin: Manual attendance entry ───
+  const handleManualAttendance = async () => {
+    if (!manualForm.userId || !manualForm.date || !manualForm.clockIn) return;
+    setManualSubmitting(true);
+
+    const clockInISO = new Date(`${manualForm.date}T${manualForm.clockIn}:00`).toISOString();
+    let clockOutISO: string | null = null;
+    if (manualForm.clockOut) {
+      clockOutISO = new Date(`${manualForm.date}T${manualForm.clockOut}:00`).toISOString();
+      // Overnight: if clock_out time < clock_in time, it's the next day
+      if (new Date(clockOutISO) <= new Date(clockInISO)) {
+        const nextDay = new Date(manualForm.date);
+        nextDay.setDate(nextDay.getDate() + 1);
+        clockOutISO = new Date(`${nextDay.toISOString().split('T')[0]}T${manualForm.clockOut}:00`).toISOString();
+      }
+    }
+
+    const { error } = await supabase.from('attendance').insert({
+      user_id: manualForm.userId,
+      clock_in: clockInISO,
+      clock_out: clockOutISO,
+      status: manualForm.status,
+      added_by: user!.id,
+      notes: manualForm.notes || null,
+    });
+
+    if (error) {
+      const msg = error.message.includes('existe déjà')
+        ? 'Un pointage existe déjà pour cet employé à cette date.'
+        : error.message;
+      toast({ title: 'Erreur', description: msg, variant: 'destructive' });
+    } else {
+      toast({ title: '✅ Pointage ajouté manuellement' });
+      setManualDialogOpen(false);
+      setManualForm({ userId: '', date: '', clockIn: '08:00', clockOut: '', status: 'present', notes: '' });
+      await refreshHistory();
+    }
+    setManualSubmitting(false);
+  };
+
+  // ─── Admin: Edit attendance record ───
+  const openEditDialog = (record: AttendanceRecord) => {
+    setEditRecord(record);
+    setEditForm({
+      clockIn: format(new Date(record.clock_in), 'HH:mm'),
+      clockOut: record.clock_out ? format(new Date(record.clock_out), 'HH:mm') : '',
+      status: record.status,
+      notes: record.notes || '',
+    });
+    setEditDialogOpen(true);
+  };
+
+  const handleEditAttendance = async () => {
+    if (!editRecord) return;
+    setEditSubmitting(true);
+
+    const dateStr = editRecord.clock_in.split('T')[0];
+    const clockInISO = new Date(`${dateStr}T${editForm.clockIn}:00`).toISOString();
+    let clockOutISO: string | null = null;
+    if (editForm.clockOut) {
+      clockOutISO = new Date(`${dateStr}T${editForm.clockOut}:00`).toISOString();
+      if (new Date(clockOutISO) <= new Date(clockInISO)) {
+        const nextDay = new Date(dateStr);
+        nextDay.setDate(nextDay.getDate() + 1);
+        clockOutISO = new Date(`${nextDay.toISOString().split('T')[0]}T${editForm.clockOut}:00`).toISOString();
+      }
+    }
+
+    const { error } = await supabase
+      .from('attendance')
+      .update({
+        clock_in: clockInISO,
+        clock_out: clockOutISO,
+        status: editForm.status,
+        notes: editForm.notes || null,
+      })
+      .eq('id', editRecord.id);
+
+    if (error) {
+      toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: '✅ Pointage modifié' });
+      setEditDialogOpen(false);
+      await refreshHistory();
+    }
+    setEditSubmitting(false);
+  };
+
+  // ─── Admin: Delete attendance record ───
+  const handleDeleteAttendance = async () => {
+    if (!deleteRecord) return;
+    const { error } = await supabase.from('attendance').delete().eq('id', deleteRecord.id);
+    if (error) {
+      toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: '✅ Pointage supprimé' });
+      await refreshHistory();
+    }
+    setDeleteRecord(null);
   };
 
   const getStatusBadge = (status: string) => {
@@ -569,9 +699,16 @@ export default function Attendance() {
         </Card>
 
         {/* History */}
-        <h2 className="font-display text-lg font-semibold mb-4">
-          {isAdminOrManager ? 'Historique de tous les employés' : 'Historique récent'}
-        </h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-display text-lg font-semibold">
+            {isAdminOrManager ? 'Historique de tous les employés' : 'Historique récent'}
+          </h2>
+          {isAdminOrManager && canFix && (
+            <Button size="sm" onClick={() => { setManualForm({ userId: '', date: new Date().toISOString().split('T')[0], clockIn: '08:00', clockOut: '', status: 'present', notes: '' }); setManualDialogOpen(true); }}>
+              <Plus className="h-4 w-4 mr-1" /> Ajouter un pointage
+            </Button>
+          )}
+        </div>
         <Card className="overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -583,6 +720,7 @@ export default function Attendance() {
                   <th className="table-header px-4 py-3 text-left">Départ</th>
                   <th className="table-header px-4 py-3 text-left">Durée</th>
                   <th className="table-header px-4 py-3 text-left">Statut</th>
+                  {isAdminOrManager && canFix && <th className="table-header px-4 py-3 text-left">Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -635,11 +773,31 @@ export default function Attendance() {
                       })() : '—'}
                     </td>
                     <td className="px-4 py-3">{getStatusBadge(record.status)}</td>
+                    {isAdminOrManager && canFix && (
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1">
+                          <button
+                            className="p-1 rounded hover:bg-muted transition-colors"
+                            title="Modifier"
+                            onClick={() => openEditDialog(record)}
+                          >
+                            <Pencil className="h-3.5 w-3.5 text-muted-foreground hover:text-primary" />
+                          </button>
+                          <button
+                            className="p-1 rounded hover:bg-destructive/10 transition-colors"
+                            title="Supprimer"
+                            onClick={() => setDeleteRecord(record)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
                 {history.length === 0 && (
                   <tr>
-                    <td colSpan={isAdminOrManager ? 6 : 5} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={isAdminOrManager ? (canFix ? 7 : 6) : 5} className="px-4 py-8 text-center text-muted-foreground">
                       Aucun historique de pointage
                     </td>
                   </tr>
@@ -705,6 +863,143 @@ export default function Attendance() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog: Admin manual attendance entry */}
+      <Dialog open={manualDialogOpen} onOpenChange={setManualDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Ajouter un pointage manuellement</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Employé</Label>
+              <Select value={manualForm.userId} onValueChange={(v) => setManualForm({ ...manualForm, userId: v })}>
+                <SelectTrigger><SelectValue placeholder="Sélectionner un employé" /></SelectTrigger>
+                <SelectContent>
+                  {employees.map((e) => (
+                    <SelectItem key={e.user_id} value={e.user_id}>{e.full_name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Date</Label>
+              <Input type="date" value={manualForm.date} onChange={(e) => setManualForm({ ...manualForm, date: e.target.value })} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Heure d'arrivée</Label>
+                <Input type="time" value={manualForm.clockIn} onChange={(e) => setManualForm({ ...manualForm, clockIn: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Heure de départ (optionnel)</Label>
+                <Input type="time" value={manualForm.clockOut} onChange={(e) => setManualForm({ ...manualForm, clockOut: e.target.value })} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Statut</Label>
+              <Select value={manualForm.status} onValueChange={(v) => setManualForm({ ...manualForm, status: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="present">Présent</SelectItem>
+                  <SelectItem value="late">En retard</SelectItem>
+                  <SelectItem value="absent">Absent</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Remarque (optionnel)</Label>
+              <Textarea
+                value={manualForm.notes}
+                onChange={(e) => setManualForm({ ...manualForm, notes: e.target.value })}
+                placeholder="Raison du pointage manuel..."
+                rows={2}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setManualDialogOpen(false)}>Annuler</Button>
+            <Button onClick={handleManualAttendance} disabled={!manualForm.userId || !manualForm.date || manualSubmitting}>
+              {manualSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+              Ajouter
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Admin edit attendance */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Modifier le pointage</DialogTitle>
+          </DialogHeader>
+          {editRecord && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Employé : <strong>{editRecord.full_name || '—'}</strong><br />
+                Date : <strong>{format(new Date(editRecord.clock_in), 'dd/MM/yyyy')}</strong>
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label>Heure d'arrivée</Label>
+                  <Input type="time" value={editForm.clockIn} onChange={(e) => setEditForm({ ...editForm, clockIn: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Heure de départ</Label>
+                  <Input type="time" value={editForm.clockOut} onChange={(e) => setEditForm({ ...editForm, clockOut: e.target.value })} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Statut</Label>
+                <Select value={editForm.status} onValueChange={(v) => setEditForm({ ...editForm, status: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="present">Présent</SelectItem>
+                    <SelectItem value="late">En retard</SelectItem>
+                    <SelectItem value="absent">Absent</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Remarque</Label>
+                <Textarea
+                  value={editForm.notes}
+                  onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                  placeholder="Raison de la modification..."
+                  rows={2}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>Annuler</Button>
+            <Button onClick={handleEditAttendance} disabled={editSubmitting}>
+              {editSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Pencil className="h-4 w-4 mr-2" />}
+              Enregistrer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation */}
+      <AlertDialog open={!!deleteRecord} onOpenChange={(open) => { if (!open) setDeleteRecord(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer ce pointage ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteRecord && (
+                <>Pointage de <strong>{deleteRecord.full_name || '—'}</strong> du <strong>{format(new Date(deleteRecord.clock_in), 'dd/MM/yyyy')}</strong>. Cette action est irréversible.</>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteAttendance} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   );
 }

@@ -49,6 +49,20 @@ export function usePresenceDetection() {
   const getTodayRecord = useCallback(async () => {
     if (!user) return null;
     const today = new Date().toISOString().split('T')[0];
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+
+    // Check for open overnight record from yesterday first
+    const { data: overnight } = await supabase
+      .from('attendance')
+      .select('*')
+      .eq('user_id', user.id)
+      .gte('clock_in', yesterday)
+      .lt('clock_in', today)
+      .is('clock_out', null)
+      .limit(1);
+    if (overnight && overnight.length > 0) return overnight[0];
+
+    // Then check today's record
     const { data } = await supabase
       .from('attendance')
       .select('*')
@@ -191,6 +205,12 @@ export function usePresenceDetection() {
             status === 'late' ? '⚠️ Arrivée en retard (auto)' : '✅ Arrivée automatique enregistrée',
             `Votre appareil a été détecté sur le réseau de l'entreprise. Pointage d'arrivée enregistré à ${now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}.`,
           );
+        } else {
+          // Notify on failure (e.g. duplicate entry)
+          console.warn('Auto clock-in failed:', error.message);
+          if (!error.message.includes('existe déjà')) {
+            sendNotification('⚠️ Erreur de pointage', `Le pointage automatique a échoué : ${error.message}`);
+          }
         }
       } else if (hasClockedIn && !hasClockedOut) {
         presenceState.current = 'on-site';
@@ -253,7 +273,7 @@ export function usePresenceDetection() {
   }, [user, getTodayRecord, sendNotification, clearTimers]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || role === 'admin') return; // Admins don't need auto presence detection
 
     // Load office IP once
     const loadSettings = async () => {

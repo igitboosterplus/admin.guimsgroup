@@ -44,6 +44,8 @@ export type Database = {
           ip_address: string | null
           status: string
           user_id: string
+          added_by: string | null
+          notes: string | null
         }
         Insert: {
           clock_in?: string
@@ -53,6 +55,8 @@ export type Database = {
           ip_address?: string | null
           status?: string
           user_id: string
+          added_by?: string | null
+          notes?: string | null
         }
         Update: {
           clock_in?: string
@@ -62,6 +66,8 @@ export type Database = {
           ip_address?: string | null
           status?: string
           user_id?: string
+          added_by?: string | null
+          notes?: string | null
         }
         Relationships: []
       }
