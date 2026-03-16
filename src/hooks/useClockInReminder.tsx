@@ -3,17 +3,41 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 
 /**
- * Sends a browser notification reminder if the employee hasn't clocked in
- * after the configured start time. Works even without periodic background sync.
- * Fires once per session when the app is open.
+ * Plays an alarm sound + browser notification when the employee hasn't clocked in
+ * at the configured work start time. Repeats every 5 minutes until clock-in or 2h after start.
+ * Also reminds of the acceptable late margin (30 min grace).
  */
 export function useClockInReminder() {
   const { user, role } = useAuth();
-  const reminded = useRef(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (!user || role === 'admin' || reminded.current) return;
-    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    if (!user || role === 'admin') return;
+    if (!('Notification' in window)) return;
+
+    // Request permission proactively
+    if (Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+
+    const playAlarm = () => {
+      try {
+        const ctx = new AudioContext();
+        // Play a triple-beep alarm
+        [0, 0.25, 0.5].forEach(delay => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.frequency.value = 880;
+          gain.gain.value = 0.3;
+          osc.start(ctx.currentTime + delay);
+          osc.stop(ctx.currentTime + delay + 0.15);
+        });
+      } catch {
+        // AudioContext not available — silent fallback
+      }
+    };
 
     const check = async () => {
       // Load work start time
@@ -26,9 +50,10 @@ export function useClockInReminder() {
       const day = now.getDay();
       if (day === 0 || day === 6) return; // Skip weekends
 
-      // Only remind if past start time + 15min grace
-      const startMinutes = startH * 60 + startM + 15;
+      const startMinutes = startH * 60 + startM;
       const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+      // Only remind from start time up to 2h after
       if (nowMinutes < startMinutes || nowMinutes > startMinutes + 120) return;
 
       // Check if already clocked in today
@@ -40,26 +65,46 @@ export function useClockInReminder() {
         .gte('clock_in', today)
         .limit(1);
 
-      if (data && data.length > 0) return; // Already clocked in
+      if (data && data.length > 0) {
+        // Already clocked in → stop checking
+        if (intervalRef.current) clearInterval(intervalRef.current);
+        return;
+      }
 
-      reminded.current = true;
+      const lateMinutes = nowMinutes - startMinutes;
+      const graceMinutes = 30;
 
-      // Show browser notification
-      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({
-          type: 'SHOW_REMINDER',
+      playAlarm();
+
+      if (Notification.permission === 'granted') {
+        const body = lateMinutes <= 0
+          ? `Il est ${startTime} — c'est l'heure de pointer ! Marge de tolérance : ${graceMinutes} min.`
+          : lateMinutes <= graceMinutes
+            ? `Vous avez ${graceMinutes - lateMinutes} min de marge restante avant d'être compté en retard. Pointez maintenant !`
+            : `⚠️ Vous êtes en retard de ${lateMinutes} min ! Pénalité : 1% du salaire par heure de retard (max 4%/jour).`;
+
+        // SW notification
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage({ type: 'SHOW_REMINDER' });
+        }
+        new Notification('⏰ Rappel de pointage', {
+          body,
+          icon: '/logos/guims group.jpg',
+          tag: 'clock-in-reminder',
+          requireInteraction: true,
         });
       }
-      // Also show direct notification as fallback
-      new Notification('⏰ Rappel de pointage', {
-        body: `Il est ${now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} — Vous n'avez pas encore pointé votre arrivée.`,
-        icon: '/logos/guims group.jpg',
-        tag: 'clock-in-reminder',
-      });
     };
 
-    // Wait 10 seconds after mount, then check
-    const timer = setTimeout(check, 10_000);
-    return () => clearTimeout(timer);
+    // First check after 10s, then every 5 minutes
+    const timer = setTimeout(() => {
+      check();
+      intervalRef.current = setInterval(check, 5 * 60 * 1000);
+    }, 10_000);
+
+    return () => {
+      clearTimeout(timer);
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
   }, [user, role]);
 }

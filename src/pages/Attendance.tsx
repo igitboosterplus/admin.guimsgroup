@@ -6,7 +6,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Clock, LogIn, LogOut, Wifi, WifiOff, Loader2, ChevronLeft, ChevronRight, AlertTriangle, Radio, MapPin, Plus, Pencil, Trash2 } from 'lucide-react';
+import { Clock, LogIn, LogOut, Wifi, WifiOff, Loader2, ChevronLeft, ChevronRight, AlertTriangle, Radio, MapPin, Plus, Pencil, Trash2, CheckCircle2, XCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -28,6 +28,8 @@ interface AttendanceRecord {
   full_name?: string;
   added_by?: string | null;
   notes?: string | null;
+  overtime_minutes?: number;
+  overtime_approved?: boolean | null;
 }
 
 interface EmployeeOption {
@@ -327,10 +329,21 @@ export default function Attendance() {
       toast({ title: 'Erreur', description: msg, variant: 'destructive' });
     } else {
       setTodayRecord(data);
-      toast({
-        title: isLate ? '⚠️ Arrivée en retard' : '✅ Arrivée enregistrée',
-        description: `Pointage à ${format(now, 'HH:mm')}`,
-      });
+      if (isLate) {
+        const lateMin = Math.floor((now.getTime() - startDate.getTime()) / 60000);
+        const lateH = Math.ceil(lateMin / 60);
+        const penalty = Math.min(lateH, 4);
+        toast({
+          title: '⚠️ Arrivée en retard',
+          description: `Pointage à ${format(now, 'HH:mm')} — Retard de ${lateMin}min (~${penalty}% de pénalité, max 4%/jour)`,
+          variant: 'destructive',
+        });
+      } else {
+        toast({
+          title: '✅ Arrivée enregistrée',
+          description: `Pointage à ${format(now, 'HH:mm')}`,
+        });
+      }
     }
     setSubmitting(false);
   };
@@ -340,31 +353,55 @@ export default function Attendance() {
     setSubmitting(true);
 
     const now = new Date();
+
+    // Calculate overtime minutes if past scheduled end
+    let overtimeMin = 0;
+    if (todaySchedule) {
+      const [endH, endM] = todaySchedule.end.split(':').map(Number);
+      const scheduledEnd = new Date(now);
+      scheduledEnd.setHours(endH, endM, 0, 0);
+      const isOvernight = todaySchedule.end < todaySchedule.start;
+      if (isOvernight) {
+        const clockInDate = new Date(todayRecord.clock_in).toISOString().split('T')[0];
+        const todayDate = now.toISOString().split('T')[0];
+        if (todayDate === clockInDate) scheduledEnd.setDate(scheduledEnd.getDate() + 1);
+      }
+      if (now > scheduledEnd) {
+        overtimeMin = Math.floor((now.getTime() - scheduledEnd.getTime()) / 60000);
+      }
+    }
+
+    const updatePayload: Record<string, unknown> = { clock_out: now.toISOString() };
+    if (overtimeMin > 0) {
+      updatePayload.overtime_minutes = overtimeMin;
+      // overtime_approved stays null → pending admin approval
+    }
+
     const { error } = await supabase
       .from('attendance')
-      .update({ clock_out: now.toISOString() })
+      .update(updatePayload)
       .eq('id', todayRecord.id);
 
     if (error) {
       toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
     } else {
-      setTodayRecord({ ...todayRecord, clock_out: now.toISOString() });
+      setTodayRecord({ ...todayRecord, clock_out: now.toISOString(), overtime_minutes: overtimeMin > 0 ? overtimeMin : 0 });
       // Warn if early departure
       if (todaySchedule) {
         const [endH, endM] = todaySchedule.end.split(':').map(Number);
         const scheduledEnd = new Date(now);
         scheduledEnd.setHours(endH, endM, 0, 0);
-        // Overnight shift: if end < start, the end is the next day
         const isOvernight = todaySchedule.end < todaySchedule.start;
         if (isOvernight) {
-          // If we're still on the same calendar day as clock_in, end is tomorrow
           const clockInDate = new Date(todayRecord.clock_in).toISOString().split('T')[0];
           const todayDate = now.toISOString().split('T')[0];
-          if (todayDate === clockInDate) {
-            scheduledEnd.setDate(scheduledEnd.getDate() + 1);
-          }
+          if (todayDate === clockInDate) scheduledEnd.setDate(scheduledEnd.getDate() + 1);
         }
-        if (now < new Date(scheduledEnd.getTime() - 30 * 60000)) {
+        if (overtimeMin > 0) {
+          const h = Math.floor(overtimeMin / 60);
+          const m = overtimeMin % 60;
+          toast({ title: '⏰ Heures supplémentaires détectées', description: `${h > 0 ? h + 'h' : ''}${m}min au-delà de l'horaire. En attente de validation admin.` });
+        } else if (now < new Date(scheduledEnd.getTime() - 30 * 60000)) {
           toast({ title: '⚠️ Départ anticipé', description: `Vous partez avant ${todaySchedule.end} (fin prévue)`, variant: 'destructive' });
         } else {
           toast({ title: '👋 Départ enregistré', description: `À ${format(now, 'HH:mm')}` });
@@ -508,6 +545,26 @@ export default function Attendance() {
       await refreshHistory();
     }
     setDeleteRecord(null);
+  };
+
+  // ─── Admin: Approve/Reject overtime ───
+  const handleOvertimeDecision = async (recordId: string, approved: boolean) => {
+    if (!user) return;
+    const { error } = await supabase
+      .from('attendance')
+      .update({
+        overtime_approved: approved,
+        overtime_reviewed_by: user.id,
+        overtime_reviewed_at: new Date().toISOString(),
+      })
+      .eq('id', recordId);
+
+    if (error) {
+      toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: approved ? '✅ Heures sup. approuvées' : '❌ Heures sup. refusées' });
+      await refreshHistory();
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -710,6 +767,15 @@ export default function Attendance() {
                         })()}
                       </span>
                     </div>
+                    {(todayRecord.overtime_minutes ?? 0) > 0 && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">Heures sup.</span>
+                        <span className="text-sm font-medium">
+                          {Math.floor(todayRecord.overtime_minutes! / 60) > 0 ? `${Math.floor(todayRecord.overtime_minutes! / 60)}h` : ''}{todayRecord.overtime_minutes! % 60}min
+                          {todayRecord.overtime_approved === true ? ' ✅' : todayRecord.overtime_approved === false ? ' ❌' : ' ⏳'}
+                        </span>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <Button onClick={handleClockOut} variant="outline" disabled={submitting} className="w-full mt-2">
@@ -744,6 +810,7 @@ export default function Attendance() {
                   <th className="table-header px-4 py-3 text-left">Départ</th>
                   <th className="table-header px-4 py-3 text-left">Durée</th>
                   <th className="table-header px-4 py-3 text-left">Statut</th>
+                  <th className="table-header px-4 py-3 text-left">Heures sup.</th>
                   {isAdminOrManager && canFix && <th className="table-header px-4 py-3 text-left">Actions</th>}
                 </tr>
               </thead>
@@ -797,6 +864,41 @@ export default function Attendance() {
                       })() : '—'}
                     </td>
                     <td className="px-4 py-3">{getStatusBadge(record.status)}</td>
+                    <td className="px-4 py-3 text-sm">
+                      {(record.overtime_minutes ?? 0) > 0 ? (
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs font-medium">
+                            {Math.floor(record.overtime_minutes! / 60) > 0 ? `${Math.floor(record.overtime_minutes! / 60)}h` : ''}{record.overtime_minutes! % 60}min
+                          </span>
+                          {record.overtime_approved === true ? (
+                            <span className="text-[10px] bg-success/10 text-success px-1.5 py-0.5 rounded">Approuvé</span>
+                          ) : record.overtime_approved === false ? (
+                            <span className="text-[10px] bg-destructive/10 text-destructive px-1.5 py-0.5 rounded">Refusé</span>
+                          ) : (
+                            isAdminOrManager && canFix ? (
+                              <div className="flex gap-0.5">
+                                <button
+                                  className="p-0.5 rounded hover:bg-success/10 transition-colors"
+                                  title="Approuver les heures sup."
+                                  onClick={() => handleOvertimeDecision(record.id, true)}
+                                >
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                                </button>
+                                <button
+                                  className="p-0.5 rounded hover:bg-destructive/10 transition-colors"
+                                  title="Refuser les heures sup."
+                                  onClick={() => handleOvertimeDecision(record.id, false)}
+                                >
+                                  <XCircle className="h-3.5 w-3.5 text-destructive" />
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-[10px] bg-warning/10 text-warning px-1.5 py-0.5 rounded">En attente</span>
+                            )
+                          )}
+                        </div>
+                      ) : '—'}
+                    </td>
                     {isAdminOrManager && canFix && (
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1">
@@ -821,7 +923,7 @@ export default function Attendance() {
                 ))}
                 {history.length === 0 && (
                   <tr>
-                    <td colSpan={isAdminOrManager ? (canFix ? 7 : 6) : 5} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={isAdminOrManager ? (canFix ? 8 : 7) : 6} className="px-4 py-8 text-center text-muted-foreground">
                       Aucun historique de pointage
                     </td>
                   </tr>

@@ -19,6 +19,7 @@ export function usePresenceDetection() {
   const officeLat = useRef<number | null>(null);
   const officeLng = useRef<number | null>(null);
   const officeRadius = useRef<number>(100);
+  const workEndTime = useRef<string>('17:00');
   const notifPermission = useRef<NotificationPermission>('default');
   const lastSeenOnSite = useRef<string | null>(null);
 
@@ -78,6 +79,18 @@ export function usePresenceDetection() {
       clearTimeout(departureTimer.current);
       departureTimer.current = null;
     }
+  }, []);
+
+  // Calculate overtime minutes based on departure time vs scheduled end
+  const calcOvertimeMinutes = useCallback((departureIso: string): number => {
+    const departure = new Date(departureIso);
+    const [endH, endM] = workEndTime.current.split(':').map(Number);
+    const scheduledEnd = new Date(departure);
+    scheduledEnd.setHours(endH, endM, 0, 0);
+    if (departure > scheduledEnd) {
+      return Math.floor((departure.getTime() - scheduledEnd.getTime()) / 60000);
+    }
+    return 0;
   }, []);
 
   // Haversine distance in meters
@@ -236,9 +249,12 @@ export function usePresenceDetection() {
             departureTimer.current = null;
           }
           const departureTimestamp = lastSeenOnSite.current || record!.clock_in;
+          const otMin = calcOvertimeMinutes(departureTimestamp);
+          const updatePayload: Record<string, unknown> = { clock_out: departureTimestamp };
+          if (otMin > 0) updatePayload.overtime_minutes = otMin;
           await supabase
             .from('attendance')
-            .update({ clock_out: departureTimestamp })
+            .update(updatePayload)
             .eq('id', record!.id);
 
           sendNotification(
@@ -254,9 +270,12 @@ export function usePresenceDetection() {
           departureTimer.current = setTimeout(async () => {
             const freshRecord = await getTodayRecord();
             if (freshRecord && !freshRecord.clock_out) {
+              const otMin = calcOvertimeMinutes(departureTimestamp);
+              const updatePayload: Record<string, unknown> = { clock_out: departureTimestamp };
+              if (otMin > 0) updatePayload.overtime_minutes = otMin;
               await supabase
                 .from('attendance')
-                .update({ clock_out: departureTimestamp })
+                .update(updatePayload)
                 .eq('id', freshRecord.id);
 
               sendNotification(
@@ -285,6 +304,8 @@ export function usePresenceDetection() {
         if (ipSetting) {
           officeIps.current = String(ipSetting.value).replace(/"/g, '').split(',').map(s => s.trim()).filter(Boolean);
         }
+        const endTimeSetting = settings.find((s) => s.key === 'work_end_time');
+        if (endTimeSetting) workEndTime.current = String(endTimeSetting.value).replace(/"/g, '');
         const latSetting = settings.find((s) => s.key === 'office_lat');
         const lngSetting = settings.find((s) => s.key === 'office_lng');
         const radSetting = settings.find((s) => s.key === 'office_radius');

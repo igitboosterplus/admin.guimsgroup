@@ -40,6 +40,7 @@ interface EmployeeReport {
   absence_hours: number;
   overtime_days: number;
   overtime_bonus: number;
+  overtime_approved_hours: number;
   deduction: number;
   net_salary: number;
   paid_leave_days: number;
@@ -162,24 +163,28 @@ export default function Reports() {
         // Absences after subtracting approved leave days (leave days are not unexcused absences)
         const netAbsents = Math.max(0, absents - paidLeaveDays - unpaidLeaveDays);
 
-        // Calcul des heures d'absence (retards >30min et départs anticipés >30min)
-        let totalAbsenceHours = 0;
+        // Calcul des heures de retard par jour (pour appliquer le plafond de 4% par jour)
+        // Pénalité : 1% du salaire par heure de retard, max 4% par jour
+        let totalLatePercent = 0;
+        const dailyLateHours: Record<string, number> = {};
+
         userAtt.forEach((a) => {
           const clockIn = new Date(a.clock_in);
-          // Heure prévue d'arrivée + 30min de grâce
+          const recordDay = a.clock_in.split('T')[0];
           const scheduledStart = new Date(clockIn);
           scheduledStart.setHours(startH, startM, 0, 0);
           const graceStart = new Date(scheduledStart.getTime() + GRACE_MINUTES * 60000);
 
-          // Si arrivée après grâce → heures d'absence depuis l'heure prévue
+          let dayLateHours = dailyLateHours[recordDay] || 0;
+
+          // Si arrivée après grâce → heures de retard
           if (clockIn > graceStart) {
             const lateMinutes = (clockIn.getTime() - scheduledStart.getTime()) / 60000;
-            totalAbsenceHours += Math.ceil(lateMinutes / 60);
+            dayLateHours += Math.ceil(lateMinutes / 60);
           }
 
           // Départ anticipé / oubli de pointage de départ
           const today = new Date().toISOString().split('T')[0];
-          const recordDay = a.clock_in.split('T')[0];
 
           if (a.clock_out) {
             const clockOut = new Date(a.clock_out);
@@ -187,22 +192,28 @@ export default function Reports() {
             scheduledEnd.setHours(endH, endM, 0, 0);
             const graceEnd = new Date(scheduledEnd.getTime() - GRACE_MINUTES * 60000);
 
-            // Si départ avant grâce → heures d'absence jusqu'à l'heure prévue
             if (clockOut < graceEnd) {
               const earlyMinutes = (scheduledEnd.getTime() - clockOut.getTime()) / 60000;
-              totalAbsenceHours += Math.ceil(earlyMinutes / 60);
+              dayLateHours += Math.ceil(earlyMinutes / 60);
             }
           } else if (recordDay !== today) {
-            // Oubli de pointage de départ sur un jour passé :
-            // On considère que l'employé est parti à l'heure d'arrivée
-            // → déduction = heures restantes de la journée depuis clock_in jusqu'à fin prévue
             const scheduledEnd = new Date(clockIn);
             scheduledEnd.setHours(endH, endM, 0, 0);
             if (scheduledEnd > clockIn) {
               const missingMinutes = (scheduledEnd.getTime() - clockIn.getTime()) / 60000;
-              totalAbsenceHours += Math.ceil(missingMinutes / 60);
+              dayLateHours += Math.ceil(missingMinutes / 60);
             }
           }
+
+          dailyLateHours[recordDay] = dayLateHours;
+        });
+
+        // Apply 1% per hour, capped at 4% per day
+        let totalAbsenceHours = 0;
+        Object.values(dailyLateHours).forEach((hours) => {
+          totalAbsenceHours += hours;
+          const dayPercent = Math.min(hours * 1, 4); // 1% per hour, max 4%
+          totalLatePercent += dayPercent;
         });
 
         // Jours supplémentaires (dimanche travaillé)
@@ -211,23 +222,29 @@ export default function Reports() {
           const dayOfWeek = new Date(dateStr).getDay();
           if (dayOfWeek === 0) overtimeDays++;
         });
-        const overtimeBonus = Math.round(overtimeDays * (p.base_salary || 0) * 0.05);
 
-        // Déductions : configurable depuis paramètres
-        // late_deduction & absence_deduction from Settings (type: fixed or percentage)
-        // Congé non payé : salaire journalier (salaire/26) par jour
+        // Heures supplémentaires approuvées par l'admin (en dehors des dimanches)
+        let approvedOvertimeMinutes = 0;
+        userAtt.forEach((a: any) => {
+          if (a.overtime_approved === true && (a.overtime_minutes || 0) > 0) {
+            approvedOvertimeMinutes += a.overtime_minutes;
+          }
+        });
+        const approvedOvertimeHours = approvedOvertimeMinutes / 60;
+
+        // Bonus heures sup: 5% du salaire par dimanche travaillé + heures sup approuvées
         const salary = p.base_salary || 0;
-        const lateDed = settings.late_deduction || { type: 'fixed', amount: 2000 };
-        const absDed = settings.absence_deduction || { type: 'fixed', amount: 5000 };
+        const sundayBonus = Math.round(overtimeDays * salary * 0.05);
+        // Heures sup weekdays: hourly rate * 1.5 for approved overtime
+        const hourlyRate = salary / (26 * ((endH + endM / 60) - (startH + startM / 60)));
+        const weekdayOvertimeBonus = Math.round(approvedOvertimeHours * hourlyRate * 1.5);
+        const overtimeBonus = sundayBonus + weekdayOvertimeBonus;
 
-        const hourDeduction = lateDed.type === 'percentage'
-          ? totalAbsenceHours * salary * (lateDed.amount / 100)
-          : totalAbsenceHours * lateDed.amount;
-        const dayDeduction = absDed.type === 'percentage'
-          ? netAbsents * salary * (absDed.amount / 100)
-          : netAbsents * absDed.amount;
+        // Déductions : 1% par heure de retard (plafond 4% par jour) + 4% par jour d'absence
+        const lateDeduction = Math.round(totalLatePercent * salary / 100);
+        const absenceDeduction = Math.round(netAbsents * salary * 0.04); // 4% par jour d'absence
         const unpaidLeaveDeduction = Math.round(unpaidLeaveDays * salary / 26);
-        const deduction = Math.round(hourDeduction + dayDeduction + unpaidLeaveDeduction);
+        const deduction = Math.round(lateDeduction + absenceDeduction + unpaidLeaveDeduction);
 
         // Task stats for this employee in this month
         const empTasks = monthTasks.filter((t) => t.assigned_to === p.user_id);
@@ -248,6 +265,7 @@ export default function Reports() {
           absence_hours: totalAbsenceHours,
           overtime_days: overtimeDays,
           overtime_bonus: overtimeBonus,
+          overtime_approved_hours: Math.round(approvedOvertimeHours * 10) / 10,
           deduction,
           net_salary: Math.max(0, salary - deduction + overtimeBonus),
           paid_leave_days: paidLeaveDays,
@@ -579,12 +597,7 @@ export default function Reports() {
                     {reports.reduce((s, r) => s + r.absents, 0)}j · {reports.reduce((s, r) => s + r.absence_hours, 0)}h
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {(() => {
-                      const absDed = settings.absence_deduction || { type: 'fixed', amount: 5000 };
-                      const lateDed = settings.late_deduction || { type: 'fixed', amount: 2000 };
-                      const fmtDed = (d: any) => d.type === 'percentage' ? `${d.amount}%` : `${Number(d.amount).toLocaleString()} FCFA`;
-                      return `${fmtDed(absDed)}/jour · ${fmtDed(lateDed)}/heure`;
-                    })()}
+                    1% du salaire/heure de retard (max 4%/jour) · 4%/jour d'absence
                   </p>
                 </CardContent>
               </Card>
