@@ -716,9 +716,7 @@ export default function Reports() {
                     </div>
                     <div className="sm:w-48 p-4 bg-muted/50 rounded-lg text-center">
                       <p className="text-xs text-muted-foreground mb-2">Score de Productivité</p>
-                      <div className="text-4xl font-bold font-display" style={{
-                        color: aiAnalysis.profitability_score >= 70 ? '#16a34a' : aiAnalysis.profitability_score >= 40 ? '#ea580c' : '#dc2626'
-                      }}>
+                      <div className={`text-4xl font-bold font-display ${aiAnalysis.profitability_score >= 70 ? 'text-green-600' : aiAnalysis.profitability_score >= 40 ? 'text-orange-600' : 'text-red-600'}`}>
                         {aiAnalysis.profitability_score}
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">/100</p>

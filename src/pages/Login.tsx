@@ -390,7 +390,7 @@ export default function Login() {
                           {label}
                         </div>
                         {file ? (
-                          <button type="button" onClick={() => handleDocFile(key, null)} className="text-muted-foreground hover:text-destructive">
+                          <button type="button" onClick={() => handleDocFile(key, null)} className="text-muted-foreground hover:text-destructive" title="Supprimer le fichier">
                             <X className="h-4 w-4" />
                           </button>
                         ) : null}

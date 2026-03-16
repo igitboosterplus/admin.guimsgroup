@@ -89,7 +89,7 @@ export default function AppSidebar() {
           <p className="text-[10px] uppercase tracking-widest opacity-60">Gestion RH</p>
         </div>
         {/* Close button on mobile */}
-        <button className="ml-auto lg:hidden" onClick={() => setMobileOpen(false)}>
+        <button className="ml-auto lg:hidden" onClick={() => setMobileOpen(false)} title="Fermer le menu">
           <X className="h-5 w-5" />
         </button>
       </div>
@@ -150,6 +150,7 @@ export default function AppSidebar() {
       <button
         className="fixed top-4 left-4 z-50 lg:hidden rounded-md bg-background p-2 shadow-md border"
         onClick={() => setMobileOpen(true)}
+        title="Ouvrir le menu"
       >
         <Menu className="h-5 w-5" />
       </button>

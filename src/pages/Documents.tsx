@@ -127,8 +127,8 @@ export default function Documents() {
       const { data, error } = await query;
       if (error) throw error;
       setDocuments((data as EmployeeDocument[]) || []);
-    } catch (err: any) {
-      toast({ title: 'Erreur', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Erreur', description: err instanceof Error ? err.message : 'Erreur inconnue', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -201,8 +201,8 @@ export default function Documents() {
       const fileInput = document.getElementById('file-upload') as HTMLInputElement;
       if (fileInput) fileInput.value = '';
       await fetchDocuments();
-    } catch (err: any) {
-      toast({ title: 'Erreur', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Erreur', description: err instanceof Error ? err.message : 'Erreur inconnue', variant: 'destructive' });
     } finally {
       setUploading(false);
     }
@@ -218,8 +218,8 @@ export default function Documents() {
         .createSignedUrl(doc.file_path, 300);
       if (error) throw error;
       window.open(data.signedUrl, '_blank');
-    } catch (err: any) {
-      toast({ title: 'Erreur', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Erreur', description: err instanceof Error ? err.message : 'Erreur inconnue', variant: 'destructive' });
     }
   };
 
@@ -230,8 +230,8 @@ export default function Documents() {
         .createSignedUrl(doc.file_path, 300);
       if (error) throw error;
       setPreviewUrl(data.signedUrl);
-    } catch (err: any) {
-      toast({ title: 'Erreur', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Erreur', description: err instanceof Error ? err.message : 'Erreur inconnue', variant: 'destructive' });
     }
   };
 
@@ -245,8 +245,8 @@ export default function Documents() {
       if (error) throw error;
       toast({ title: 'Supprimé', description: 'Document supprimé' });
       await fetchDocuments();
-    } catch (err: any) {
-      toast({ title: 'Erreur', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Erreur', description: err instanceof Error ? err.message : 'Erreur inconnue', variant: 'destructive' });
     }
   };
 
@@ -268,8 +268,8 @@ export default function Documents() {
       if (error) throw error;
       toast({ title: 'Validé', description: `${doc.file_name} a été validé` });
       await fetchDocuments();
-    } catch (err: any) {
-      toast({ title: 'Erreur', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Erreur', description: err instanceof Error ? err.message : 'Erreur inconnue', variant: 'destructive' });
     }
   };
 
@@ -290,8 +290,8 @@ export default function Documents() {
       setRejectTarget(null);
       setRejectReason('');
       await fetchDocuments();
-    } catch (err: any) {
-      toast({ title: 'Erreur', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Erreur', description: err instanceof Error ? err.message : 'Erreur inconnue', variant: 'destructive' });
     }
   };
 
