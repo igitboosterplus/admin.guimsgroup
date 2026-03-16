@@ -16,6 +16,9 @@ export function usePresenceDetection() {
   const presenceState = useRef<PresenceState>('away');
   const departureTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const officeIps = useRef<string[]>([]);
+  const officeLat = useRef<number | null>(null);
+  const officeLng = useRef<number | null>(null);
+  const officeRadius = useRef<number>(100);
   const notifPermission = useRef<NotificationPermission>('default');
   const lastSeenOnSite = useRef<string | null>(null);
 
@@ -63,26 +66,70 @@ export function usePresenceDetection() {
     }
   }, []);
 
-  const checkPresence = useCallback(async () => {
-    if (!user || !officeIps.current.length || (officeIps.current.length === 1 && officeIps.current[0] === '0.0.0.0')) return;
+  // Haversine distance in meters
+  const haversineDistance = useCallback((lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371000;
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }, []);
 
-    // Fetch current IP
+  // Get GPS position as a promise
+  const getGpsPosition = useCallback((): Promise<{ lat: number; lng: number } | null> => {
+    return new Promise((resolve) => {
+      if (!('geolocation' in navigator)) { resolve(null); return; }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+      );
+    });
+  }, []);
+
+  const checkPresence = useCallback(async () => {
+    if (!user) return;
+
+    const hasGps = officeLat.current !== null && officeLng.current !== null;
+    const hasIps = officeIps.current.length > 0 && !(officeIps.current.length === 1 && officeIps.current[0] === '0.0.0.0');
+
+    if (!hasGps && !hasIps) return;
+
+    let isOnSite = false;
     let currentIp = '';
-    try {
-      const res = await fetch('https://api.ipify.org?format=json');
-      const data = await res.json();
-      currentIp = data.ip;
-    } catch {
-      return; // network error → skip this cycle
+
+    // Primary: GPS check
+    if (hasGps) {
+      const pos = await getGpsPosition();
+      if (pos) {
+        const dist = haversineDistance(pos.lat, pos.lng, officeLat.current!, officeLng.current!);
+        isOnSite = dist <= officeRadius.current;
+      }
     }
 
-    const isOnSite = officeIps.current.some(ip => {
-      if (!ip || ip === '0.0.0.0') return false;
-      if (ip.includes('*')) {
-        return new RegExp('^' + ip.split('.').map(seg => seg === '*' ? '\\d+' : seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\.') + '$').test(currentIp);
+    // Fallback: IP check (only if GPS not configured or GPS said off-site)
+    if (!isOnSite && hasIps) {
+      try {
+        const res = await fetch('https://api.ipify.org?format=json');
+        const data = await res.json();
+        currentIp = data.ip;
+      } catch {
+        // network error → skip this cycle if no GPS match
+        if (!hasGps) return;
       }
-      return currentIp === ip;
-    });
+
+      if (currentIp) {
+        isOnSite = officeIps.current.some(ip => {
+          if (!ip || ip === '0.0.0.0') return false;
+          if (ip.includes('*')) {
+            return new RegExp('^' + ip.split('.').map(seg => seg === '*' ? '\\d+' : seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\.') + '$').test(currentIp);
+          }
+          return currentIp === ip;
+        });
+      }
+    }
+
     const record = await getTodayRecord();
     const hasClockedIn = !!record;
     const hasClockedOut = !!record?.clock_out;
@@ -191,6 +238,17 @@ export function usePresenceDetection() {
         const ipSetting = settings.find((s) => s.key === 'office_ip');
         if (ipSetting) {
           officeIps.current = String(ipSetting.value).replace(/"/g, '').split(',').map(s => s.trim()).filter(Boolean);
+        }
+        const latSetting = settings.find((s) => s.key === 'office_lat');
+        const lngSetting = settings.find((s) => s.key === 'office_lng');
+        const radSetting = settings.find((s) => s.key === 'office_radius');
+        const lat = parseFloat(String(latSetting?.value ?? '').replace(/"/g, ''));
+        const lng = parseFloat(String(lngSetting?.value ?? '').replace(/"/g, ''));
+        const rad = parseFloat(String(radSetting?.value ?? '100').replace(/"/g, ''));
+        if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+          officeLat.current = lat;
+          officeLng.current = lng;
+          officeRadius.current = isNaN(rad) ? 100 : rad;
         }
       }
     };

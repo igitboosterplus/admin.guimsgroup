@@ -26,6 +26,9 @@ export default function Settings() {
     work_start_time: '08:00',
     work_end_time: '17:00',
     office_ips: ['0.0.0.0', '', '', ''],
+    office_lat: '',
+    office_lng: '',
+    office_radius: '100',
     late_deduction_type: 'fixed',
     late_deduction_amount: 2000,
     absence_deduction_type: 'fixed',
@@ -55,6 +58,9 @@ export default function Settings() {
             const parts = raw.split(',').map(s => s.trim());
             return [parts[0] || '0.0.0.0', parts[1] || '', parts[2] || '', parts[3] || ''];
           })(),
+          office_lat: String(map.office_lat || '').replace(/"/g, ''),
+          office_lng: String(map.office_lng || '').replace(/"/g, ''),
+          office_radius: String(map.office_radius || '100').replace(/"/g, ''),
           late_deduction_type: map.late_deduction?.type || 'fixed',
           late_deduction_amount: map.late_deduction?.amount || 2000,
           absence_deduction_type: map.absence_deduction?.type || 'fixed',
@@ -101,6 +107,9 @@ export default function Settings() {
       { key: 'work_start_time', value: form.work_start_time },
       { key: 'work_end_time', value: form.work_end_time },
       { key: 'office_ip', value: form.office_ips.filter(ip => ip.trim()).join(',') || '0.0.0.0' },
+      { key: 'office_lat', value: form.office_lat },
+      { key: 'office_lng', value: form.office_lng },
+      { key: 'office_radius', value: form.office_radius || '100' },
       { key: 'late_deduction', value: { type: form.late_deduction_type, amount: form.late_deduction_amount } },
       { key: 'absence_deduction', value: { type: form.absence_deduction_type, amount: form.absence_deduction_amount } },
       { key: 'currency', value: form.currency },
@@ -240,10 +249,54 @@ export default function Settings() {
           </CardContent>
         </Card>
 
-        {/* Office IPs */}
+        {/* GPS Geolocation (primary method) */}
+        <Card className="stat-card mb-6 border-primary/30">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              📍 Géolocalisation GPS du bureau (méthode principale)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <Label>Latitude</Label>
+                <Input
+                  value={form.office_lat}
+                  onChange={(e) => setForm({ ...form, office_lat: e.target.value })}
+                  placeholder="Ex: 3.8480"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Longitude</Label>
+                <Input
+                  value={form.office_lng}
+                  onChange={(e) => setForm({ ...form, office_lng: e.target.value })}
+                  placeholder="Ex: 11.5021"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Rayon (mètres)</Label>
+                <Input
+                  type="number"
+                  min="10"
+                  max="5000"
+                  value={form.office_radius}
+                  onChange={(e) => setForm({ ...form, office_radius: e.target.value })}
+                  placeholder="100"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Coordonnées GPS du bureau. L'employé doit être dans le rayon défini pour pointer. Laissez vide pour désactiver la vérification GPS.
+              Pour trouver vos coordonnées : ouvrez Google Maps, faites un clic droit sur votre bureau → les coordonnées apparaissent.
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Office IPs (fallback) */}
         <Card className="stat-card mb-6">
           <CardHeader>
-            <CardTitle className="text-base">Adresses IP du bureau</CardTitle>
+            <CardTitle className="text-base">Adresses IP du bureau (méthode secondaire)</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {form.office_ips.map((ip, idx) => (
@@ -261,7 +314,7 @@ export default function Settings() {
               </div>
             ))}
             <p className="text-xs text-muted-foreground">
-              Jusqu'à 4 adresses IP. Mettre 0.0.0.0 sur l'IP principale pour désactiver. Utilisez * comme joker (ex: 196.168.1.*).
+              Utilisé uniquement si le GPS n'est pas disponible. Mettre 0.0.0.0 sur l'IP principale pour désactiver.
             </p>
           </CardContent>
         </Card>

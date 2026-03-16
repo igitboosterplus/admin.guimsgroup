@@ -6,7 +6,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Clock, LogIn, LogOut, Wifi, WifiOff, Loader2, ChevronLeft, ChevronRight, AlertTriangle, Radio } from 'lucide-react';
+import { Clock, LogIn, LogOut, Wifi, WifiOff, Loader2, ChevronLeft, ChevronRight, AlertTriangle, Radio, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -38,6 +38,12 @@ export default function Attendance() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [ipAllowed, setIpAllowed] = useState<boolean | null>(null);
+  const [gpsAllowed, setGpsAllowed] = useState<boolean | null>(null);
+  const [gpsError, setGpsError] = useState<string>('');
+  const [officeLat, setOfficeLat] = useState<number | null>(null);
+  const [officeLng, setOfficeLng] = useState<number | null>(null);
+  const [officeRadius, setOfficeRadius] = useState<number>(100);
+  const [gpsDistance, setGpsDistance] = useState<number | null>(null);
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const [fixDialogOpen, setFixDialogOpen] = useState(false);
@@ -64,8 +70,19 @@ export default function Attendance() {
       if (settings) {
         const ipSetting = settings.find((s) => s.key === 'office_ip');
         const startSetting = settings.find((s) => s.key === 'work_start_time');
+        const latSetting = settings.find((s) => s.key === 'office_lat');
+        const lngSetting = settings.find((s) => s.key === 'office_lng');
+        const radiusSetting = settings.find((s) => s.key === 'office_radius');
         if (ipSetting) setOfficeIps(String(ipSetting.value ?? '0.0.0.0').replace(/"/g, '').split(',').map(s => s.trim()).filter(Boolean));
         if (startSetting) setWorkStartTime(String(startSetting.value ?? '').replace(/"/g, ''));
+        const lat = parseFloat(String(latSetting?.value ?? '').replace(/"/g, ''));
+        const lng = parseFloat(String(lngSetting?.value ?? '').replace(/"/g, ''));
+        const rad = parseFloat(String(radiusSetting?.value ?? '100').replace(/"/g, ''));
+        if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+          setOfficeLat(lat);
+          setOfficeLng(lng);
+          setOfficeRadius(isNaN(rad) ? 100 : rad);
+        }
       }
 
       // Fetch today's record (or an open overnight shift from yesterday)
@@ -162,14 +179,69 @@ export default function Attendance() {
     fetchHistory();
   }, [user, page, role, isAdminOrManager]);
 
+  // Haversine formula to calculate distance between two GPS points in meters
+  const haversineDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371000; // Earth radius in meters
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  };
+
+  // GPS geolocation check (primary method)
+  useEffect(() => {
+    if (role !== 'bureau' || !officeLat || !officeLng) {
+      // GPS not configured or not a bureau employee
+      if (role !== 'bureau') setGpsAllowed(true);
+      return;
+    }
+
+    if (!('geolocation' in navigator)) {
+      setGpsError('Géolocalisation non supportée par ce navigateur');
+      setGpsAllowed(false);
+      return;
+    }
+
+    const checkGps = () => {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const dist = haversineDistance(
+            position.coords.latitude,
+            position.coords.longitude,
+            officeLat,
+            officeLng,
+          );
+          setGpsDistance(Math.round(dist));
+          setGpsAllowed(dist <= officeRadius);
+          setGpsError('');
+        },
+        (err) => {
+          if (err.code === 1) {
+            setGpsError('Accès GPS refusé. Autorisez la géolocalisation dans votre navigateur.');
+          } else if (err.code === 2) {
+            setGpsError('Position GPS indisponible.');
+          } else {
+            setGpsError('Délai de géolocalisation dépassé.');
+          }
+          setGpsAllowed(false);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+      );
+    };
+
+    checkGps();
+    const interval = setInterval(checkGps, 60000); // Recheck every 60s
+    return () => clearInterval(interval);
+  }, [role, officeLat, officeLng, officeRadius]);
+
+  // IP check (fallback when GPS is not configured)
   useEffect(() => {
     if (currentIp && officeIps.length) {
       if (role === 'bureau') {
-        // Check if all IPs are disabled
         if (officeIps.length === 1 && officeIps[0] === '0.0.0.0') {
           setIpAllowed(true);
         } else {
-          // Match against any of the configured IPs
           const match = officeIps.some(ip => {
             if (!ip || ip === '0.0.0.0') return false;
             if (ip.includes('*')) {
@@ -186,8 +258,17 @@ export default function Attendance() {
     }
   }, [currentIp, officeIps, role]);
 
+  // Combined permission: GPS (primary) OR IP (fallback)
+  const locationAllowed = (() => {
+    if (role !== 'bureau') return true;
+    // If GPS is configured, use GPS result
+    if (officeLat && officeLng) return gpsAllowed === true;
+    // Otherwise fall back to IP
+    return ipAllowed === true;
+  })();
+
   const handleClockIn = async () => {
-    if (!user || !ipAllowed) return;
+    if (!user || !locationAllowed) return;
     setSubmitting(true);
 
     const now = new Date();
@@ -322,31 +403,62 @@ export default function Attendance() {
       <div className="animate-fade-in">
         <h1 className="page-title mb-6">Pointage</h1>
 
-        {/* IP Status for bureau */}
+        {/* Location Status for bureau */}
         {role === 'bureau' && (
           <Card className="stat-card mb-6 max-w-lg">
-            <CardContent className="pt-5">
-              <div className="flex items-center gap-3">
-                {ipAllowed ? (
-                  <>
-                    <Wifi className="h-5 w-5 text-success" />
-                    <div>
-                      <p className="text-sm font-medium text-success">Connecté au WiFi du bureau</p>
-                      <p className="text-xs text-muted-foreground">IP: {currentIp}</p>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <WifiOff className="h-5 w-5 text-destructive" />
-                    <div>
-                      <p className="text-sm font-medium text-destructive">WiFi du bureau non détecté</p>
-                      <p className="text-xs text-muted-foreground">
-                        Votre IP ({currentIp}) ne correspond pas à l'IP du bureau. Pointage impossible.
-                      </p>
-                    </div>
-                  </>
-                )}
-              </div>
+            <CardContent className="pt-5 space-y-3">
+              {/* GPS status (primary) */}
+              {officeLat && officeLng && (
+                <div className="flex items-center gap-3">
+                  {gpsAllowed ? (
+                    <>
+                      <MapPin className="h-5 w-5 text-success" />
+                      <div>
+                        <p className="text-sm font-medium text-success">Position GPS confirmée — vous êtes au bureau</p>
+                        {gpsDistance !== null && (
+                          <p className="text-xs text-muted-foreground">Distance: {gpsDistance}m (rayon autorisé: {officeRadius}m)</p>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <MapPin className="h-5 w-5 text-destructive" />
+                      <div>
+                        <p className="text-sm font-medium text-destructive">
+                          {gpsError || 'Vous n\'êtes pas dans le périmètre du bureau'}
+                        </p>
+                        {gpsDistance !== null && (
+                          <p className="text-xs text-muted-foreground">Distance: {gpsDistance}m (rayon autorisé: {officeRadius}m)</p>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+              {/* IP status (fallback) */}
+              {(!officeLat || !officeLng) && (
+                <div className="flex items-center gap-3">
+                  {ipAllowed ? (
+                    <>
+                      <Wifi className="h-5 w-5 text-success" />
+                      <div>
+                        <p className="text-sm font-medium text-success">Connecté au WiFi du bureau</p>
+                        <p className="text-xs text-muted-foreground">IP: {currentIp}</p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <WifiOff className="h-5 w-5 text-destructive" />
+                      <div>
+                        <p className="text-sm font-medium text-destructive">WiFi du bureau non détecté</p>
+                        <p className="text-xs text-muted-foreground">
+                          Votre IP ({currentIp}) ne correspond pas à l'IP du bureau. Pointage impossible.
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -410,7 +522,7 @@ export default function Attendance() {
                 <p className="text-sm text-muted-foreground mb-4">Vous n'avez pas encore pointé aujourd'hui.</p>
                 <Button
                   onClick={handleClockIn}
-                  disabled={submitting || ipAllowed === false}
+                  disabled={submitting || !locationAllowed}
                   className="w-full"
                 >
                   {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <LogIn className="h-4 w-4 mr-2" />}
