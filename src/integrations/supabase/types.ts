@@ -80,6 +80,11 @@ export type Database = {
           completion_note: string | null
           progress: number
           category: string | null
+          account_id: string | null
+          daily_target: number | null
+          daily_achieved: number
+          is_recurring: boolean
+          recurrence: string | null
           created_at: string
           updated_at: string
         }
@@ -97,6 +102,11 @@ export type Database = {
           completion_note?: string | null
           progress?: number
           category?: string | null
+          account_id?: string | null
+          daily_target?: number | null
+          daily_achieved?: number
+          is_recurring?: boolean
+          recurrence?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -114,8 +124,91 @@ export type Database = {
           completion_note?: string | null
           progress?: number
           category?: string | null
+          account_id?: string | null
+          daily_target?: number | null
+          daily_achieved?: number
+          is_recurring?: boolean
+          recurrence?: string | null
           created_at?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      managed_accounts: {
+        Row: {
+          id: string
+          name: string
+          platform: string
+          url: string | null
+          description: string | null
+          assigned_to: string
+          created_by: string
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          platform?: string
+          url?: string | null
+          description?: string | null
+          assigned_to: string
+          created_by: string
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          platform?: string
+          url?: string | null
+          description?: string | null
+          assigned_to?: string
+          created_by?: string
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      task_templates: {
+        Row: {
+          id: string
+          title: string
+          description: string | null
+          position: string
+          default_priority: string
+          default_category: string | null
+          daily_target: number | null
+          is_active: boolean
+          created_by: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          title: string
+          description?: string | null
+          position: string
+          default_priority?: string
+          default_category?: string | null
+          daily_target?: number | null
+          is_active?: boolean
+          created_by: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          title?: string
+          description?: string | null
+          position?: string
+          default_priority?: string
+          default_category?: string | null
+          daily_target?: number | null
+          is_active?: boolean
+          created_by?: string
+          created_at?: string
         }
         Relationships: []
       }
@@ -350,6 +443,54 @@ export type Database = {
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
           user_id?: string
+        }
+        Relationships: []
+      }
+      task_comments: {
+        Row: {
+          id: string
+          task_id: string
+          user_id: string
+          content: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          task_id: string
+          user_id: string
+          content: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          task_id?: string
+          user_id?: string
+          content?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
+      task_checklist: {
+        Row: {
+          id: string
+          task_id: string
+          label: string
+          is_done: boolean
+          sort_order: number
+        }
+        Insert: {
+          id?: string
+          task_id: string
+          label: string
+          is_done?: boolean
+          sort_order?: number
+        }
+        Update: {
+          id?: string
+          task_id?: string
+          label?: string
+          is_done?: boolean
+          sort_order?: number
         }
         Relationships: []
       }
