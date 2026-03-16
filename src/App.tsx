@@ -22,6 +22,7 @@ const Tasks = lazy(() => import("./pages/Tasks"));
 const Schedules = lazy(() => import("./pages/Schedules"));
 const Profile = lazy(() => import("./pages/Profile"));
 const Documents = lazy(() => import("./pages/Documents"));
+const DailyReports = lazy(() => import("./pages/DailyReports"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const PageLoader = () => (
@@ -57,6 +58,7 @@ const App = () => (
             <Route path="/schedules" element={<Schedules />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/documents" element={<Documents />} />
+            <Route path="/daily-reports" element={<DailyReports />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
           </Suspense>

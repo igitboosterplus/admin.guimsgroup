@@ -500,6 +500,102 @@ export type Database = {
         }
         Relationships: []
       }
+      daily_reports: {
+        Row: {
+          id: string
+          user_id: string
+          report_date: string
+          tasks_done: string
+          tasks_in_progress: string | null
+          blockers: string | null
+          plans_tomorrow: string | null
+          mood: string
+          hours_worked: number | null
+          admin_note: string | null
+          reviewed_by: string | null
+          reviewed_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          report_date: string
+          tasks_done: string
+          tasks_in_progress?: string | null
+          blockers?: string | null
+          plans_tomorrow?: string | null
+          mood?: string
+          hours_worked?: number | null
+          admin_note?: string | null
+          reviewed_by?: string | null
+          reviewed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          report_date?: string
+          tasks_done?: string
+          tasks_in_progress?: string | null
+          blockers?: string | null
+          plans_tomorrow?: string | null
+          mood?: string
+          hours_worked?: number | null
+          admin_note?: string | null
+          reviewed_by?: string | null
+          reviewed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      task_suggestions: {
+        Row: {
+          id: string
+          department: string
+          position: string | null
+          title: string
+          description: string | null
+          priority: string
+          category: string | null
+          is_recurring_suggestion: boolean
+          recurrence: string | null
+          is_active: boolean
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          department: string
+          position?: string | null
+          title: string
+          description?: string | null
+          priority?: string
+          category?: string | null
+          is_recurring_suggestion?: boolean
+          recurrence?: string | null
+          is_active?: boolean
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          department?: string
+          position?: string | null
+          title?: string
+          description?: string | null
+          priority?: string
+          category?: string | null
+          is_recurring_suggestion?: boolean
+          recurrence?: string | null
+          is_active?: boolean
+          created_by?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
       role_permissions: {
         Row: {
           id: string
