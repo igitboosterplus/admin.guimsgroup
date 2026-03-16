@@ -222,8 +222,8 @@ export default function Attendance() {
 
   // GPS geolocation check (primary method)
   useEffect(() => {
-    if (role !== 'bureau' || !officeLat || !officeLng) {
-      // GPS not configured or not a bureau employee
+    if (!officeLat || !officeLng) {
+      // GPS not configured
       if (role !== 'bureau') setGpsAllowed(true);
       return;
     }
@@ -269,24 +269,22 @@ export default function Attendance() {
   // IP check (fallback when GPS is not configured)
   useEffect(() => {
     if (currentIp && officeIps.length) {
-      if (role === 'bureau') {
-        if (officeIps.length === 1 && officeIps[0] === '0.0.0.0') {
-          setIpAllowed(true);
-        } else {
-          const match = officeIps.some(ip => {
-            if (!ip || ip === '0.0.0.0') return false;
-            // Compare only the first 3 octets (X.X.X.*) — the 4th changes frequently on WiFi
-            const ipParts = ip.split('.');
-            const currentParts = currentIp.split('.');
-            if (ipParts.length === 4 && currentParts.length === 4) {
-              return ipParts.slice(0, 3).every((seg, i) => seg === '*' || seg === currentParts[i]);
-            }
-            return currentIp === ip;
-          });
-          setIpAllowed(match);
-        }
-      } else {
+      if (officeIps.length === 1 && officeIps[0] === '0.0.0.0') {
         setIpAllowed(true);
+      } else {
+        const match = officeIps.some(ip => {
+          if (!ip || ip === '0.0.0.0') return false;
+          // Compare only the first 3 octets (X.X.X.*) — the 4th changes frequently on WiFi
+          const ipParts = ip.split('.');
+          const currentParts = currentIp.split('.');
+          if (ipParts.length === 4 && currentParts.length === 4) {
+            return ipParts.slice(0, 3).every((seg, i) => seg === '*' || seg === currentParts[i]);
+          }
+          return currentIp === ip;
+        });
+        setIpAllowed(match);
+        // Admin/manager always allowed to clock in regardless
+        if (role !== 'bureau') setIpAllowed(true);
       }
     }
   }, [currentIp, officeIps, role]);
@@ -535,10 +533,13 @@ export default function Attendance() {
       <div className="animate-fade-in">
         <h1 className="page-title mb-6">Pointage</h1>
 
-        {/* Location Status for bureau */}
-        {role === 'bureau' && (
-          <Card className="stat-card mb-6 max-w-lg">
+        {/* Location Status */}
+        {(role === 'bureau' || role === 'admin' || role === 'manager') && (
+          <Card className={`stat-card mb-6 max-w-lg ${role !== 'bureau' ? 'border-blue-200 bg-blue-50/30 dark:border-blue-900 dark:bg-blue-950/20' : ''}`}>
             <CardContent className="pt-5 space-y-3">
+              {role !== 'bureau' && (
+                <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-2">📊 Statut de localisation (informatif)</p>
+              )}
               {/* GPS status (primary) */}
               {officeLat && officeLng && (
                 <div className="flex items-center gap-3">
@@ -567,8 +568,8 @@ export default function Attendance() {
                   )}
                 </div>
               )}
-              {/* IP status (fallback) */}
-              {(!officeLat || !officeLng) && (
+              {/* IP status (fallback or additional info for admin) */}
+              {((!officeLat || !officeLng) || role !== 'bureau') && currentIp && (
                 <div className="flex items-center gap-3">
                   {ipAllowed ? (
                     <>
