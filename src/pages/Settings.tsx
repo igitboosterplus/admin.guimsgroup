@@ -10,8 +10,9 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { usePermissions } from '@/hooks/usePermissions';
-import { Settings as SettingsIcon, Save, Loader2, Plus, X, Briefcase, Brain } from 'lucide-react';
+import { Settings as SettingsIcon, Save, Loader2, Plus, X, Briefcase, Brain, ChevronDown } from 'lucide-react';
 import { DEPARTMENTS, getPositionsForDepartment, GLOBAL_POSITIONS } from '@/lib/departments';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 export default function Settings() {
   const { toast } = useToast();
@@ -306,21 +307,49 @@ export default function Settings() {
             <CardTitle className="text-base">Adresses IP du bureau (méthode secondaire)</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {form.office_ips.map((ip, idx) => (
-              <div key={idx} className="space-y-1">
-                <Label>IP {idx + 1}{idx === 0 ? ' (principale)' : ' (optionnelle)'}</Label>
-                <Input
-                  value={ip}
-                  onChange={(e) => {
-                    const updated = [...form.office_ips];
-                    updated[idx] = e.target.value;
-                    setForm({ ...form, office_ips: updated });
-                  }}
-                  placeholder={idx === 0 ? 'Ex: 196.168.1.* ou 0.0.0.0' : 'Laisser vide si non utilisé'}
-                  disabled={readOnly}
-                />
-              </div>
-            ))}
+            {/* IP 1 — toujours visible */}
+            <div className="space-y-1">
+              <Label>IP 1 (principale)</Label>
+              <Input
+                value={form.office_ips[0]}
+                onChange={(e) => {
+                  const updated = [...form.office_ips];
+                  updated[0] = e.target.value;
+                  setForm({ ...form, office_ips: updated });
+                }}
+                placeholder="Ex: 196.168.1.* ou 0.0.0.0"
+                disabled={readOnly}
+              />
+            </div>
+            {/* IPs 2-10 — dans une liste déroulante */}
+            <Collapsible>
+              <CollapsibleTrigger asChild>
+                <Button variant="ghost" size="sm" className="w-full justify-between text-muted-foreground hover:text-foreground">
+                  <span>Afficher les IP supplémentaires (2-10)</span>
+                  <ChevronDown className="h-4 w-4 transition-transform [[data-state=open]>&]:rotate-180" />
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="space-y-3 pt-2">
+                {form.office_ips.slice(1).map((ip, i) => {
+                  const idx = i + 1;
+                  return (
+                    <div key={idx} className="space-y-1">
+                      <Label>IP {idx + 1} (optionnelle)</Label>
+                      <Input
+                        value={ip}
+                        onChange={(e) => {
+                          const updated = [...form.office_ips];
+                          updated[idx] = e.target.value;
+                          setForm({ ...form, office_ips: updated });
+                        }}
+                        placeholder="Laisser vide si non utilisé"
+                        disabled={readOnly}
+                      />
+                    </div>
+                  );
+                })}
+              </CollapsibleContent>
+            </Collapsible>
             <p className="text-xs text-muted-foreground">
               Utilisé comme vérification principale. Le GPS est utilisé en secours si l'IP ne correspond pas. Mettre 0.0.0.0 sur l'IP principale pour désactiver.
             </p>
