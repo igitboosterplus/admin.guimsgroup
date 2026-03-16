@@ -1635,12 +1635,12 @@ export default function Tasks() {
             {accountsForEmployee.length > 0 && (
               <div>
                 <Label>Compte / Page liée</Label>
-                <Select value={form.account_id} onValueChange={(v) => setForm({ ...form, account_id: v })}>
+                <Select value={form.account_id || '__none__'} onValueChange={(v) => setForm({ ...form, account_id: v === '__none__' ? '' : v })}>
                   <SelectTrigger className="mt-1">
                     <SelectValue placeholder="Aucun compte lié" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Aucun</SelectItem>
+                    <SelectItem value="__none__">Aucun</SelectItem>
                     {accountsForEmployee.map((a) => (
                       <SelectItem key={a.id} value={a.id}>
                         {(platformLabels[a.platform] || platformLabels.autre).emoji} {a.name}
@@ -1666,8 +1666,8 @@ export default function Tasks() {
               </div>
               <div>
                 <Label>Récurrence</Label>
-                <Select value={form.is_recurring ? (form.recurrence || 'daily') : ''} onValueChange={(v) => {
-                  if (v) {
+                <Select value={form.is_recurring ? (form.recurrence || 'daily') : '__none__'} onValueChange={(v) => {
+                  if (v && v !== '__none__') {
                     setForm({ ...form, is_recurring: true, recurrence: v });
                   } else {
                     setForm({ ...form, is_recurring: false, recurrence: '' });
@@ -1677,7 +1677,7 @@ export default function Tasks() {
                     <SelectValue placeholder="Non récurrente" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Non récurrente</SelectItem>
+                    <SelectItem value="__none__">Non récurrente</SelectItem>
                     <SelectItem value="daily">Quotidienne</SelectItem>
                     <SelectItem value="weekly">Hebdomadaire</SelectItem>
                     <SelectItem value="monthly">Mensuelle</SelectItem>
