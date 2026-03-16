@@ -350,6 +350,49 @@ export default function Documents() {
         </div>
 
         {/* ======================================================== */}
+        {/*  UPLOAD (all roles)                                       */}
+        {/* ======================================================== */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Upload className="h-4 w-4" />
+              Envoyer un document
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Select value={uploadType} onValueChange={setUploadType}>
+                <SelectTrigger className="w-full sm:w-[240px]">
+                  <SelectValue placeholder="Type de document" />
+                </SelectTrigger>
+                <SelectContent>
+                  {DOCUMENT_TYPES.map(t => (
+                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                id="file-upload"
+                type="file"
+                accept="image/jpeg,image/png,image/webp,application/pdf,.doc,.docx"
+                multiple={DOCUMENT_TYPES.find(t => t.value === uploadType)?.multiple || false}
+                onChange={(e) => setUploadFiles(e.target.files)}
+                className="flex-1"
+              />
+              <Button onClick={handleUpload} disabled={uploading || !uploadType || !uploadFiles?.length}>
+                {uploading ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Upload className="h-4 w-4 mr-1.5" />}
+                {uploading ? 'Envoi…' : 'Envoyer'}
+              </Button>
+            </div>
+            {uploadType && DOCUMENT_TYPES.find(t => t.value === uploadType)?.multiple && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Vous pouvez sélectionner plusieurs fichiers pour ce type de document.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ======================================================== */}
         {/*  EMPLOYEE VIEW                                            */}
         {/* ======================================================== */}
         {!isAdmin && (
@@ -392,47 +435,6 @@ export default function Documents() {
                     );
                   })}
                 </div>
-              </CardContent>
-            </Card>
-
-            {/* Upload form */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Upload className="h-4 w-4" />
-                  Envoyer un document
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <Select value={uploadType} onValueChange={setUploadType}>
-                    <SelectTrigger className="w-full sm:w-[240px]">
-                      <SelectValue placeholder="Type de document" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {DOCUMENT_TYPES.map(t => (
-                        <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    id="file-upload"
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,application/pdf,.doc,.docx"
-                    multiple={DOCUMENT_TYPES.find(t => t.value === uploadType)?.multiple || false}
-                    onChange={(e) => setUploadFiles(e.target.files)}
-                    className="flex-1"
-                  />
-                  <Button onClick={handleUpload} disabled={uploading || !uploadType || !uploadFiles?.length}>
-                    {uploading ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Upload className="h-4 w-4 mr-1.5" />}
-                    {uploading ? 'Envoi…' : 'Envoyer'}
-                  </Button>
-                </div>
-                {uploadType && DOCUMENT_TYPES.find(t => t.value === uploadType)?.multiple && (
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Vous pouvez sélectionner plusieurs fichiers pour ce type de document.
-                  </p>
-                )}
               </CardContent>
             </Card>
 
