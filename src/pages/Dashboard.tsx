@@ -10,6 +10,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { getDepartmentLogo } from '@/lib/departments';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
+import { useClockInReminder } from '@/hooks/useClockInReminder';
 
 const DEPT_COLORS: Record<string, string> = {
   'GABA': '#16a34a',
@@ -42,6 +43,7 @@ export default function Dashboard() {
   const { role, profile, user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+  useClockInReminder();
   const [stats, setStats] = useState({ totalEmployees: 0, presentToday: 0, lateToday: 0, absentToday: 0 });
   const [weeklyData, setWeeklyData] = useState<WeeklyData[]>([]);
   const [deptData, setDeptData] = useState<DeptData[]>([]);

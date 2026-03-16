@@ -7,6 +7,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { PermissionsProvider } from "@/hooks/usePermissions";
 import { Suspense, lazy } from "react";
 import { Loader2 } from "lucide-react";
+import PwaInstallPrompt from "@/components/PwaInstallPrompt";
 
 const Login = lazy(() => import("./pages/Login"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -36,6 +37,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
+      <PwaInstallPrompt />
       <BrowserRouter>
         <AuthProvider>
           <PermissionsProvider>

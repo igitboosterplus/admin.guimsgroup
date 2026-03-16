@@ -1,0 +1,26 @@
+{
+  "name": "GUIMS GROUP — HR Hub",
+  "short_name": "HR Hub",
+  "description": "Plateforme RH de GUIMS GROUP — Pointage, Congés, Tâches",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f172a",
+  "theme_color": "#1e40af",
+  "lang": "fr",
+  "icons": [
+    {
+      "src": "/logos/guims group.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any"
+    },
+    {
+      "src": "/logos/guims group.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg",
+      "purpose": "maskable"
+    }
+  ]
+}
