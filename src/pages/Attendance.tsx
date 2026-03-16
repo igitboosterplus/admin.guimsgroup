@@ -285,11 +285,9 @@ export default function Attendance() {
           return currentIp === ip;
         });
         setIpAllowed(match);
-        // Admin/manager always allowed to clock in regardless
-        if (role !== 'bureau') setIpAllowed(true);
       }
     }
-  }, [currentIp, officeIps, role]);
+  }, [currentIp, officeIps]);
 
   // Combined permission: IP first → GPS fallback
   const locationAllowed = (() => {
