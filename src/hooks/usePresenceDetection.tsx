@@ -196,32 +196,56 @@ export function usePresenceDetection() {
         presenceState.current = 'on-site';
       }
     } else {
-      // ─── User is NOT on the office WiFi ───
-      if (
-        hasClockedIn &&
-        !hasClockedOut &&
-        presenceState.current === 'on-site' &&
-        !departureTimer.current
-      ) {
-        // Was on-site, now gone, hasn't clocked out → start 1h15 timer
-        const departureTimestamp = lastSeenOnSite.current || new Date().toISOString();
-        departureTimer.current = setTimeout(async () => {
-          const freshRecord = await getTodayRecord();
-          if (freshRecord && !freshRecord.clock_out) {
-            // Auto clock-out avec l'heure du dernier signalement sur site
-            await supabase
-              .from('attendance')
-              .update({ clock_out: departureTimestamp })
-              .eq('id', freshRecord.id);
+      // ─── User is NOT on the office network ───
+      if (hasClockedIn && !hasClockedOut) {
+        // User has an open attendance record and is off-site
 
-            sendNotification(
-              '🚪 Départ automatique enregistré',
-              'Vous avez quitté le réseau de l\'entreprise depuis 1h15 sans pointer votre départ. Le système a enregistré votre sortie à l\'heure de votre dernier signalement.',
-            );
+        // Calculate how long they've been off-site
+        // Use lastSeenOnSite if available, otherwise use clock_in time as reference
+        const lastOnSiteTime = lastSeenOnSite.current
+          ? new Date(lastSeenOnSite.current).getTime()
+          : new Date(record!.clock_in).getTime();
+        const elapsed = Date.now() - lastOnSiteTime;
+
+        if (elapsed >= DEPARTURE_AUTO_DELAY) {
+          // Already past 1h15 → auto clock-out immediately
+          if (departureTimer.current) {
+            clearTimeout(departureTimer.current);
+            departureTimer.current = null;
           }
+          const departureTimestamp = lastSeenOnSite.current || record!.clock_in;
+          await supabase
+            .from('attendance')
+            .update({ clock_out: departureTimestamp })
+            .eq('id', record!.id);
+
+          sendNotification(
+            '🚪 Départ automatique enregistré',
+            'Vous avez quitté le réseau de l\'entreprise depuis plus de 1h15. Le système a enregistré votre sortie.',
+          );
           presenceState.current = 'away';
-          departureTimer.current = null;
-        }, DEPARTURE_AUTO_DELAY);
+        } else if (!departureTimer.current) {
+          // Start a timer for the remaining time
+          const remaining = DEPARTURE_AUTO_DELAY - elapsed;
+          const departureTimestamp = lastSeenOnSite.current || new Date().toISOString();
+          presenceState.current = 'on-site'; // ensure state is correct for next cycle
+          departureTimer.current = setTimeout(async () => {
+            const freshRecord = await getTodayRecord();
+            if (freshRecord && !freshRecord.clock_out) {
+              await supabase
+                .from('attendance')
+                .update({ clock_out: departureTimestamp })
+                .eq('id', freshRecord.id);
+
+              sendNotification(
+                '🚪 Départ automatique enregistré',
+                'Vous avez quitté le réseau de l\'entreprise depuis 1h15 sans pointer votre départ. Le système a enregistré votre sortie.',
+              );
+            }
+            presenceState.current = 'away';
+            departureTimer.current = null;
+          }, remaining);
+        }
       } else if (!hasClockedIn) {
         presenceState.current = 'away';
       }
