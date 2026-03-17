@@ -23,6 +23,9 @@ const ROLE_LABELS: Record<string, string> = {
 
 export default function Profile() {
   const { profile, role, refreshProfile, user } = useAuth();
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoUrl, setPhotoUrl] = useState(profile?.profile_photo_url || '');
   const { toast } = useToast();
 
   const [editMode, setEditMode] = useState(false);
@@ -86,8 +89,12 @@ export default function Profile() {
         <Card className="mb-6">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-4">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary text-2xl font-bold">
-                {profile.full_name.charAt(0).toUpperCase()}
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary text-2xl font-bold overflow-hidden">
+                {photoUrl ? (
+                  <img src={photoUrl} alt="Photo de profil" className="h-16 w-16 object-cover rounded-full" />
+                ) : (
+                  profile.full_name.charAt(0).toUpperCase()
+                )}
               </div>
               <div>
                 <CardTitle className="text-xl">{profile.full_name}</CardTitle>
@@ -102,6 +109,58 @@ export default function Profile() {
                       Approuvé
                     </Badge>
                   )}
+                </div>
+                {/* Upload photo button */}
+                <div className="mt-2">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    id="profile-photo-upload"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setPhotoFile(file);
+                      setUploadingPhoto(true);
+                      // Upload to Supabase storage
+                      const filePath = `${user.id}/profile-photo-${Date.now()}`;
+                      const { data, error } = await supabase.storage
+                        .from('employee-documents')
+                        .upload(filePath, file, { upsert: true });
+                      if (error) {
+                        toast({ title: 'Erreur upload', description: error.message, variant: 'destructive' });
+                        setUploadingPhoto(false);
+                        return;
+                      }
+                      // Get public URL
+                      const { publicUrl } = supabase.storage
+                        .from('employee-documents')
+                        .getPublicUrl(filePath);
+                      // Update profile
+                      const { error: updateError } = await supabase
+                        .from('profiles')
+                        .update({ profile_photo_url: publicUrl })
+                        .eq('id', profile.id);
+                      if (updateError) {
+                        toast({ title: 'Erreur profil', description: updateError.message, variant: 'destructive' });
+                        setUploadingPhoto(false);
+                        return;
+                      }
+                      setPhotoUrl(publicUrl);
+                      await refreshProfile();
+                      toast({ title: '✅ Photo de profil mise à jour' });
+                      setUploadingPhoto(false);
+                    }}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-1"
+                    disabled={uploadingPhoto}
+                    onClick={() => document.getElementById('profile-photo-upload')?.click()}
+                  >
+                    {uploadingPhoto ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : 'Changer la photo d\'identité'}
+                  </Button>
                 </div>
               </div>
             </div>

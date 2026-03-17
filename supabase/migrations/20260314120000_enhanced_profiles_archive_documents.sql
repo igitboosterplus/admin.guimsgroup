@@ -2,14 +2,13 @@
 -- Enhanced profiles: more fields + archive system + employee documents
 -- ============================================
 
--- New personal info columns on profiles
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS date_of_birth DATE;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS address TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS emergency_contact_name TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS emergency_contact_phone TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS national_id TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS profile_photo_url TEXT;
 
--- Archive columns
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS archive_reason TEXT;
