@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { useToast } from './use-toast';
+import { getWifiSSID } from '@/lib/wifi';
 
 // Intervals
 const IP_CHECK_INTERVAL = 2 * 60 * 1000;   // Check IP every 2 min
@@ -16,6 +17,7 @@ export function usePresenceDetection() {
   const presenceState = useRef<PresenceState>('away');
   const departureTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const officeIps = useRef<string[]>([]);
+  const officeSSID = useRef<string>('');
   const officeLat = useRef<number | null>(null);
   const officeLng = useRef<number | null>(null);
   const officeRadius = useRef<number>(100);
@@ -118,16 +120,25 @@ export function usePresenceDetection() {
   const checkPresence = useCallback(async () => {
     if (!user) return;
 
+    const hasSSID = !!officeSSID.current;
     const hasGps = officeLat.current !== null && officeLng.current !== null;
     const hasIps = officeIps.current.length > 0 && !(officeIps.current.length === 1 && officeIps.current[0] === '0.0.0.0');
 
-    if (!hasGps && !hasIps) return;
+    if (!hasSSID && !hasGps && !hasIps) return;
 
     let isOnSite = false;
     let currentIp = '';
 
-    // Primary: IP check
-    if (hasIps) {
+    // PRIORITY 1: WiFi SSID check (most reliable on mobile)
+    if (hasSSID) {
+      const currentSSID = await getWifiSSID();
+      if (currentSSID && currentSSID.toLowerCase() === officeSSID.current.toLowerCase()) {
+        isOnSite = true;
+      }
+    }
+
+    // PRIORITY 2: IP check (fallback if SSID not available or didn't match)
+    if (!isOnSite && hasIps) {
       try {
         const res = await fetch('https://api.ipify.org?format=json');
         const data = await res.json();
@@ -139,7 +150,6 @@ export function usePresenceDetection() {
       if (currentIp) {
         isOnSite = officeIps.current.some(ip => {
           if (!ip || ip === '0.0.0.0') return false;
-          // Full 4-octet comparison with wildcard support
           const ipParts = ip.split('.');
           const currentParts = currentIp.split('.');
           if (ipParts.length === 4 && currentParts.length === 4) {
@@ -150,7 +160,7 @@ export function usePresenceDetection() {
       }
     }
 
-    // Fallback: GPS check (only if IP didn't match)
+    // PRIORITY 3: GPS check (fallback if SSID & IP didn't match)
     if (!isOnSite && hasGps) {
       const pos = await getGpsPosition();
       if (pos) {
@@ -307,6 +317,10 @@ export function usePresenceDetection() {
     const loadSettings = async () => {
       const { data: settings } = await supabase.from('app_settings').select('*');
       if (settings) {
+        const ssidSetting = settings.find((s) => s.key === 'office_ssid');
+        if (ssidSetting) {
+          officeSSID.current = String(ssidSetting.value).replace(/"/g, '').trim();
+        }
         const ipSetting = settings.find((s) => s.key === 'office_ip');
         if (ipSetting) {
           officeIps.current = String(ipSetting.value).replace(/"/g, '').split(',').map(s => s.trim()).filter(Boolean);

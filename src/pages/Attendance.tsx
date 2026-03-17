@@ -6,7 +6,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Clock, LogIn, LogOut, Wifi, WifiOff, Loader2, ChevronLeft, ChevronRight, AlertTriangle, Radio, MapPin, Plus, Pencil, Trash2, CheckCircle2, XCircle } from 'lucide-react';
+import { Clock, LogIn, LogOut, Wifi, WifiOff, Loader2, ChevronLeft, ChevronRight, AlertTriangle, Radio, MapPin, Plus, Pencil, Trash2, CheckCircle2, XCircle, Signal } from 'lucide-react';
+import { getWifiSSID } from '@/lib/wifi';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -51,6 +52,9 @@ export default function Attendance() {
   const [submitting, setSubmitting] = useState(false);
   const [ipAllowed, setIpAllowed] = useState<boolean | null>(null);
   const [gpsAllowed, setGpsAllowed] = useState<boolean | null>(null);
+  const [ssidAllowed, setSsidAllowed] = useState<boolean | null>(null);
+  const [currentSSID, setCurrentSSID] = useState<string>('');
+  const [officeSSID, setOfficeSSID] = useState<string>('');
   const [gpsError, setGpsError] = useState<string>('');
   const [officeLat, setOfficeLat] = useState<number | null>(null);
   const [officeLng, setOfficeLng] = useState<number | null>(null);
@@ -101,6 +105,8 @@ export default function Attendance() {
       // Fetch settings
       const { data: settings } = await supabase.from('app_settings').select('*');
       if (settings) {
+        const ssidSetting = settings.find((s) => s.key === 'office_ssid');
+        if (ssidSetting) setOfficeSSID(String(ssidSetting.value).replace(/"/g, '').trim());
         const ipSetting = settings.find((s) => s.key === 'office_ip');
         const startSetting = settings.find((s) => s.key === 'work_start_time');
         const latSetting = settings.find((s) => s.key === 'office_lat');
@@ -289,14 +295,35 @@ export default function Attendance() {
     }
   }, [currentIp, officeIps]);
 
-  // Combined permission: IP first → GPS fallback
+  // SSID check (priority 1 on mobile)
+  useEffect(() => {
+    if (!officeSSID) return;
+    const checkSSID = async () => {
+      const ssid = await getWifiSSID();
+      setCurrentSSID(ssid || '');
+      if (ssid) {
+        setSsidAllowed(ssid.toLowerCase() === officeSSID.toLowerCase());
+      } else {
+        setSsidAllowed(null); // Not available (web browser)
+      }
+    };
+    checkSSID();
+    const interval = setInterval(checkSSID, 60000);
+    return () => clearInterval(interval);
+  }, [officeSSID]);
+
+  // Combined permission: SSID first → IP → GPS fallback
   const locationAllowed = (() => {
     if (role !== 'bureau') return true;
-    // 1. If IP matches → allowed
+    // 1. If SSID matches → allowed (priority)
+    if (ssidAllowed === true) return true;
+    // 2. If SSID explicitly doesn't match → denied (SSID is configured and available)
+    if (ssidAllowed === false) return false;
+    // 3. If SSID not available (web/null) → fall back to IP
     if (ipAllowed === true) return true;
-    // 2. If IP didn't match but GPS is configured and matches → allowed
+    // 4. If IP didn't match but GPS matches → allowed
     if (officeLat && officeLng && gpsAllowed === true) return true;
-    // 3. Neither matched → denied
+    // 5. Nothing matched → denied
     return false;
   })();
 
@@ -596,6 +623,38 @@ export default function Attendance() {
             <CardContent className="pt-5 space-y-3">
               {role !== 'bureau' && (
                 <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-2">📊 Statut de localisation (informatif)</p>
+              )}
+              {/* SSID WiFi status (priority) */}
+              {officeSSID && (
+                <div className="flex items-center gap-3">
+                  {ssidAllowed === true ? (
+                    <>
+                      <Signal className="h-5 w-5 text-success" />
+                      <div>
+                        <p className="text-sm font-medium text-success">WiFi « {officeSSID} » détecté ✓</p>
+                        <p className="text-xs text-muted-foreground">Réseau : {currentSSID}</p>
+                      </div>
+                    </>
+                  ) : ssidAllowed === false ? (
+                    <>
+                      <Signal className="h-5 w-5 text-destructive" />
+                      <div>
+                        <p className="text-sm font-medium text-destructive">WiFi « {officeSSID} » non détecté</p>
+                        <p className="text-xs text-muted-foreground">
+                          {currentSSID ? `Connecté à : ${currentSSID}` : 'WiFi non connecté'}
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <Signal className="h-5 w-5 text-muted-foreground" />
+                      <div>
+                        <p className="text-sm text-muted-foreground">Détection SSID non disponible (navigateur web)</p>
+                        <p className="text-xs text-muted-foreground">Utilisez l'application mobile pour la vérification WiFi</p>
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
               {/* GPS status */}
               {officeLat && officeLng && (

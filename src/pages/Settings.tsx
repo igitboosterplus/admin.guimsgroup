@@ -27,6 +27,7 @@ export default function Settings() {
     work_start_time: '08:00',
     work_end_time: '17:00',
     office_ips: ['0.0.0.0', '', '', '', '', '', '', '', '', ''],
+    office_ssid: '',
     office_lat: '',
     office_lng: '',
     office_radius: '100',
@@ -64,6 +65,7 @@ export default function Settings() {
           office_lat: String(map.office_lat || '').replace(/"/g, ''),
           office_lng: String(map.office_lng || '').replace(/"/g, ''),
           office_radius: String(map.office_radius || '100').replace(/"/g, ''),
+          office_ssid: String(map.office_ssid || '').replace(/"/g, ''),
           late_deduction_type: map.late_deduction?.type || 'fixed',
           late_deduction_amount: map.late_deduction?.amount || 2000,
           absence_deduction_type: map.absence_deduction?.type || 'fixed',
@@ -110,6 +112,7 @@ export default function Settings() {
       { key: 'work_start_time', value: form.work_start_time },
       { key: 'work_end_time', value: form.work_end_time },
       { key: 'office_ip', value: form.office_ips.filter(ip => ip.trim()).join(',') || '0.0.0.0' },
+      { key: 'office_ssid', value: form.office_ssid.trim() },
       { key: 'office_lat', value: form.office_lat },
       { key: 'office_lng', value: form.office_lng },
       { key: 'office_radius', value: form.office_radius || '100' },
@@ -297,6 +300,26 @@ export default function Settings() {
             <p className="text-xs text-muted-foreground">
               Coordonnées GPS du bureau. L'employé doit être dans le rayon défini pour pointer. Laissez vide pour désactiver la vérification GPS.
               Pour trouver vos coordonnées : ouvrez Google Maps, faites un clic droit sur votre bureau → les coordonnées apparaissent.
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Office WiFi SSID (priority method) */}
+        <Card className="stat-card mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">📶 Nom du réseau WiFi du bureau (méthode prioritaire)</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-1">
+              <Label>Nom du WiFi (SSID)</Label>
+              <Input
+                value={form.office_ssid}
+                onChange={(e) => setForm({ ...form, office_ssid: e.target.value })}
+                placeholder="Ex: GUIMS GROUP"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Si le téléphone de l'employé est connecté à ce réseau WiFi, le pointage est autorisé. C'est la méthode la plus fiable sur l'application mobile. Laissez vide pour désactiver.
             </p>
           </CardContent>
         </Card>
